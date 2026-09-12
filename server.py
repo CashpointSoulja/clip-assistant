@@ -52,7 +52,9 @@ def work(job: dict) -> None:
             cp = pipeline.JOBS / f"{jid}.transcript.json"
             update_job(jid, lambda current: current.update({"stage": "transcribing"}))
             # pipeline.transcribe owns checkpoint recovery, including partial files.
-            segments = pipeline.transcribe(job["source_path"], job["duration"], cp)
+            def transcribe_progress(chunk: int, total: int) -> None:
+                update_job(jid, lambda current: current.update({"stage": f"transcribing chunk {chunk} of {total}"}))
+            segments = pipeline.transcribe(job["source_path"], job["duration"], cp, transcribe_progress)
             numbered = [{"id": i, **s} for i, s in enumerate(segments)]
             update_job(jid, lambda current: current.update({"segments": numbered, "stage": "analysing"}))
             clips = pipeline.analyze(segments, job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], {})

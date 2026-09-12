@@ -122,3 +122,5 @@ a:focus-visible{outline:2px solid var(--coral);outline-offset:4px;border-radius:
 /* ponytail: keep the rank quiet and give transcript-derived titles two clean lines. */
 .clip-card:before{content:counter(clip,decimal-leading-zero);left:10px;top:13px;font-size:10px;letter-spacing:.08em}
 .clip-card h4{padding-left:28px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-height:1.25;overflow:hidden}
+@media(max-width:800px){.player-column{display:contents}.video-wrap{grid-row:1}.player-tools{grid-row:2}.clips-column{grid-row:3}.transcript-panel{grid-row:4}}
+@media(max-width:480px){.top-status>span#health-label{display:inline;font-size:10px;letter-spacing:-.01em;white-space:nowrap}}

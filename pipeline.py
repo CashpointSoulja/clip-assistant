@@ -15,7 +15,7 @@ import tempfile
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parent
 
@@ -111,7 +111,7 @@ def _whisper_json(audio: str, offset: float, duration: float) -> list[dict[str, 
     return []
 
 
-def transcribe(path: str, duration: float, checkpoint: Path | None = None) -> list[dict[str, Any]]:
+def transcribe(path: str, duration: float, checkpoint: Path | None = None, progress: Callable[[int, int], None] | None = None) -> list[dict[str, Any]]:
     if not tool_ok(FFMPEG) or not tool_ok(WHISPER) or not MODEL.is_file():
         raise RuntimeError("local transcription tools or model unavailable")
     # ponytail: bounded consecutive chunks; add word alignment if boundary cuts hurt review quality.
@@ -130,7 +130,10 @@ def transcribe(path: str, duration: float, checkpoint: Path | None = None) -> li
             pass
     with tempfile.TemporaryDirectory(prefix="clip-audio-") as td:
         start = next_start
+        total_chunks = max(1, math.ceil(duration / 300.0))
         while start < duration:
+            if progress:
+                progress(min(total_chunks, int(start // 300.0) + 1), total_chunks)
             length = min(300.0, duration - start)
             audio = str(Path(td) / f"chunk-{len(raw_chunks):05d}.wav")
             _run([FFMPEG, "-y", "-ss", str(start), "-i", path, "-t", str(length), "-map", "0:a:0", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", audio], 600)
