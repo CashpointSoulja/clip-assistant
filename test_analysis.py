@@ -86,6 +86,7 @@ class AnalysisChecks(unittest.TestCase):
             result = pipeline.analyze(segs(130), "creators", 2, 20, "live")
         self.assertEqual(len(ranking_payload["candidates"]), 2)
         self.assertEqual(result[0]["ranges"], [{"start": 80.0, "end": 83.0}])
+        self.assertEqual(result[0]["ranking_score"], 99)
 
     def test_score_and_montage_ranges_are_mapped(self):
         def fake(prompt, schema):
