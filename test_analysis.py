@@ -34,7 +34,7 @@ class AnalysisChecks(unittest.TestCase):
             first = pipeline.analyze(segs(5), "creators", 2, 20, "live")
             second = pipeline.analyze(segs(5), "creators", 2, 20, "live")
         self.assertEqual(first, second)
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
         self.assertIn(pipeline.PROMPT_VERSION, calls[0])
 
     def test_another_take_bypasses_without_replacing_canonical_cache(self):
@@ -49,7 +49,7 @@ class AnalysisChecks(unittest.TestCase):
             cache_file = next(Path(td).glob("*.json")); before = cache_file.read_text()
             pipeline.analyze(segs(5), "creators", 2, 20, "live", {}, True)
             self.assertEqual(cache_file.read_text(), before)
-        self.assertEqual(len(calls), 4)
+        self.assertEqual(len(calls), 6)
 
     def test_batches_cover_long_transcript_global_ids_and_audit(self):
         prompts = []
@@ -66,8 +66,26 @@ class AnalysisChecks(unittest.TestCase):
             data = json.loads(prompt[prompt.index('{'):])
             seen.update(x["id"] for x in data["segments"])
         self.assertEqual(seen, set(range(130)))
-        self.assertEqual(len(prompts), 3); self.assertEqual(result[0]["title"], "second batch")
+        self.assertEqual(len(prompts), 4); self.assertEqual(result[0]["title"], "second batch")
         self.assertEqual(result[0]["ranges"], [{"start": 80.0, "end": 91.0}])
+
+    def test_shared_ranking_sees_all_batches_and_controls_order(self):
+        ranking_payload = {}
+        def fake(prompt, schema):
+            if "Rank this complete candidate pool" in prompt:
+                ranking_payload.update(json.loads(prompt[prompt.index('{'):]))
+                ids = [item["id"] for item in ranking_payload["candidates"]]
+                return {"clips": [{"id": ids[-1], "score": 99}, {"id": ids[0], "score": 10}]}
+            if "Audit candidate boundaries" in prompt:
+                data = json.loads(prompt[prompt.index('{'):])
+                candidate = data["candidates"][0]
+                return {"clips": [{"id": candidate["id"], "ranges": [{"start_id": 80, "end_id": 82}], "title": candidate["title"], "reason": "ranked candidate", "criteria": {"hook": 4, "specificity": 4, "payoff": 4, "audience_fit": 4, "coherence": 4}, "risks": []}]}
+            start = 0 if "\"id\": 0" in prompt else 80
+            return self._response([start, start + 2], f"batch {start}")
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test"}), patch("pipeline._openai_json", side_effect=fake):
+            result = pipeline.analyze(segs(130), "creators", 2, 20, "live")
+        self.assertEqual(len(ranking_payload["candidates"]), 2)
+        self.assertEqual(result[0]["ranges"], [{"start": 80.0, "end": 83.0}])
 
     def test_score_and_montage_ranges_are_mapped(self):
         def fake(prompt, schema):

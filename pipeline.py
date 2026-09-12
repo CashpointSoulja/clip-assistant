@@ -333,7 +333,7 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
     try:
         cached = json.loads(cache_file.read_text()) if cache_file.is_file() else None
         if not force_new and cached and cached.get("prompt_version") == PROMPT_VERSION and cached.get("reasoning_effort", "low") == os.getenv("OPENAI_REASONING_EFFORT", "low") and isinstance(cached.get("clips"), list):
-            if metrics is not None: metrics.update({"analysis_calls": 0, "cache_hit": True, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
+            if metrics is not None: metrics.update({"analysis_calls": 0, "cache_hit": True, "empty_reason": cached.get("empty_reason"), "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
             return cached["clips"]
     except (OSError, ValueError, TypeError):
         pass
@@ -368,6 +368,9 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
             raise RuntimeError("OpenAI editorial analysis failed: " + str(exc)[:180])
         batch_candidate_counts.append(batch_count)
     if not model_candidates:
+        if not force_new:
+            try: _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low"), "whisper_model": MODEL.name, "clips": [], "empty_reason": "discovery_empty"})
+            except OSError: pass
         if metrics is not None: metrics.update({"analysis_calls": len(batches), "candidate_count": 0, "pre_rank_candidate_count": 0, "empty_reason": "discovery_empty", "cache_hit": False, "cache_bypass": force_new, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
         return []
     if model_candidates and not all_clips:
@@ -436,7 +439,7 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
     for c in shortlist: c.pop("_ids", None); c.pop("_range_ids", None)
     if not force_new:
         try:
-            _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low"), "whisper_model": MODEL.name, "clips": shortlist})
+            _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low"), "whisper_model": MODEL.name, "clips": shortlist, "empty_reason": metrics.get("empty_reason") if metrics is not None else ("audit_empty" if not shortlist else None)})
         except OSError:
             pass
     if metrics is not None:
