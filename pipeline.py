@@ -433,7 +433,7 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
                 if range_key in seen_repair_ranges: continue
                 seen_repair_ids.add(cid); seen_repair_ranges.add(range_key)
                 candidate["id"] = cid
-                candidate["ranking_score"] = by_id[cid].get("score")
+                candidate["ranking_score"] = next(c["score"] for c in shortlist if c["id"] == cid)
                 repaired_shortlist.append(candidate)
             except RuntimeError:
                 raise
