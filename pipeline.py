@@ -380,11 +380,12 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
     # Keep every validated batch result until one shared-context model ranking pass.
     if should_cancel and should_cancel(): raise CancelledError("job cancelled")
     rank_schema = {"type": "object", "properties": {"clips": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"id": {"type": "string"}, "score": {"type": "integer", "minimum": 0, "maximum": 100}}, "required": ["id", "score"], "additionalProperties": False}}}, "required": ["clips"], "additionalProperties": False}
-    rank_input = {"min_seconds": minimum, "max_seconds": maximum, "candidates": [{"id": c["id"], "title": c["title"], "reason": c["reason"], "criteria": c["criteria"], "ranges": c["ranges"], "text": " ".join(segments[i]["text"] for i in c["_ids"])} for c in all_clips]}
+    rank_pool = _rank_candidates(all_clips, limit=len(all_clips))
+    rank_input = {"min_seconds": minimum, "max_seconds": maximum, "candidates": [{"id": c["id"], "title": c["title"], "reason": c["reason"], "criteria": c["criteria"], "ranges": c["ranges"], "text": (" ".join(segments[i]["text"] for i in c["_ids"]))[:160] + (" … " + " ".join(segments[i]["text"] for i in c["_ids"])[-160:] if len(" ".join(segments[i]["text"] for i in c["_ids"])) > 320 else "")} for c in rank_pool]}
     ranked = _openai_json(f"Prompt version: {PROMPT_VERSION}\nRank this complete candidate pool for {audience} using the supplied editorial evidence. Return at most 8 candidates, strongest first. Use every candidate ID exactly as supplied; do not invent, rename, merge, or omit IDs except to shortlist. Score 0 to 100 as an editorial ranking, not a factual or virality probability.\n" + json.dumps(rank_input), rank_schema)
     ranked_items = ranked.get("clips", [])
     if not isinstance(ranked_items, list): raise RuntimeError("OpenAI ranking returned invalid clips")
-    by_id = {c["id"]: c for c in all_clips}; seen_rank_ids = set(); shortlist = []
+    by_id = {c["id"]: c for c in rank_pool}; seen_rank_ids = set(); shortlist = []
     for item in ranked_items:
         cid = item.get("id") if isinstance(item, dict) else None
         # Accept old cached/test responders that return a full clip without an ID;
