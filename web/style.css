@@ -64,7 +64,7 @@ body {
   overflow-x: hidden;
 }
 
-h1, h2, h3, h4 { margin: 0; font-weight: 400; }
+h1, h2, h3, h4 { margin: 0; font-weight: 400; text-wrap: balance; }
 p { margin: 0; }
 a { color: inherit; }
 button, input, select { font: inherit; color: inherit; }
@@ -148,6 +148,7 @@ button, input, select { font: inherit; color: inherit; }
   transition: background .3s var(--ease), border-color .3s var(--ease), color .3s var(--ease), transform .3s var(--ease);
 }
 .btn:hover:not(:disabled) { border-color: var(--text); transform: translateY(-1px); }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(.98); }
 .btn:disabled, .btn.is-disabled { opacity: .4; cursor: not-allowed; }
 .btn-arrow { transition: transform .35s var(--ease); }
 .btn:hover:not(:disabled) .btn-arrow { transform: translateX(4px); }
@@ -220,6 +221,7 @@ model-viewer:not(.model-ready) { opacity: 0; }
 /* ---------- panels ---------- */
 
 .panel {
+  scroll-margin-top: calc(var(--nav-h) + var(--gap));
   margin: calc(var(--gap)*2) var(--pad) 0;
   background: var(--bg-lift);
   border: 1px solid var(--hair);
@@ -348,6 +350,8 @@ video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #0c0d0e; 
   border: 1px solid var(--hair); border-radius: var(--radius); padding: 1rem;
   background: var(--bg-lift); cursor: pointer; display: grid; gap: .5rem;
   transition: border-color .3s var(--ease), background .3s var(--ease), transform .3s var(--ease);
+  animation: clip-in .55s var(--ease) both;
+  animation-delay: calc(var(--clip-index, 0) * 55ms);
 }
 .clip-card:hover { border-color: var(--hair-strong); transform: translateY(-2px); }
 .clip-card.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--bg-lift)); }
@@ -409,3 +413,4 @@ video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #0c0d0e; 
 @media (max-width: 800px) { .player-column { display: contents } .video-wrap { grid-row: 1 } .player-tools { grid-row: 2 } .clips-column { grid-row: 3 } .transcript-panel { grid-row: 4 } }
 @media (max-width: 480px) { .top-status > span#health-label { display: inline; font-size: 10px; letter-spacing: -.01em; white-space: nowrap } }
 .cache-indicator { color: var(--muted); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase }
+@keyframes clip-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
