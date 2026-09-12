@@ -40,3 +40,11 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** Fresh setup now downloads turbo with a documented `base.en` fallback. Full Whisper JSON is parsed into word spans, deterministic temperature-zero decoding is used, and candidate/export ranges snap to word edges when the spans are available. DTW remains disabled because the installed turbo build rejects the `large.v3` alignment preset.
 
 **Verified:** Turbo transcription produced 11 segments with word spans; the integration run completed in 18.35 seconds with a valid 854×480 export; 24 tests pass.
+
+### Loop 5 — make selection tangible
+
+**Observed:** Selecting a candidate opened its controls but left the playhead unchanged, and the sticky editor let the candidate list show through.
+
+**Changed:** Candidate selection now previews the first range immediately. The editor uses an opaque surface while sticky so the selected state remains legible.
+
+**Verified:** Browser regression confirms playback starts inside the selected range and the editor is opaque; GitHub Actions passes on commit `6a0a930`.
