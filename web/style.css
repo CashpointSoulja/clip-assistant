@@ -125,3 +125,4 @@ a:focus-visible{outline:2px solid var(--coral);outline-offset:4px;border-radius:
 @media(max-width:800px){.player-column{display:contents}.video-wrap{grid-row:1}.player-tools{grid-row:2}.clips-column{grid-row:3}.transcript-panel{grid-row:4}}
 @media(max-width:480px){.top-status>span#health-label{display:inline;font-size:10px;letter-spacing:-.01em;white-space:nowrap}}
 @media(min-width:801px){.clip-editor{position:sticky;top:84px;z-index:2}}
+.clip-editor:not([hidden]){background:var(--surface-strong);isolation:isolate}
