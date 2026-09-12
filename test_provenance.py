@@ -28,6 +28,18 @@ class ProvenanceChecks(unittest.TestCase):
             medium = pipeline.analysis_cache_path(segments, "general", 1, 10)
         self.assertNotEqual(low, medium)
 
+    def test_analysis_cancellation_stops_before_next_batch(self):
+        segments = [{"start": float(i), "end": float(i + 1), "text": f"segment {i}."} for i in range(160)]
+        calls = []
+        def fake_openai(prompt, schema):
+            calls.append(prompt)
+            start = 80 if len(calls) == 2 else 0
+            return {"clips": [{"ranges": [{"start_id": start, "end_id": start + 2}], "title": "A stable clip", "reason": "supported", "criteria": {"hook": 4, "specificity": 3, "payoff": 2, "audience_fit": 3, "coherence": 4}, "risks": []}]}
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "test"}), patch.object(pipeline, "_openai_json", side_effect=fake_openai):
+            with self.assertRaises(pipeline.CancelledError):
+                pipeline.analyze(segments, "general", 2, 20, "live", should_cancel=lambda: len(calls) > 0)
+        self.assertEqual(len(calls), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

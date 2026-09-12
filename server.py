@@ -109,7 +109,7 @@ def work(job: dict) -> None:
             numbered = [{"id": i, **s} for i, s in enumerate(segments)]
             update_job(jid, lambda current: current.update({"segments": numbered, "stage": "analysing"}))
             analysis_metrics = {}
-            clips = pipeline.analyze(segments, job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], analysis_metrics)
+            clips = pipeline.analyze(segments, job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], analysis_metrics, False, stop.is_set)
             if stop.is_set(): raise pipeline.CancelledError("job cancelled")
             update_job(jid, lambda current: current.update({"clips": clips, "metrics": {**current.get("metrics", {}), **analysis_metrics}, "status": "ready", "stage": "complete"}))
         except pipeline.CancelledError:
@@ -126,7 +126,7 @@ def another_take(job: dict) -> None:
         jid = job["id"]; started = time.monotonic(); stop = cancel_event(jid)
         try:
             metrics = {}
-            clips = pipeline.analyze(job.get("segments", []), job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], metrics, True)
+            clips = pipeline.analyze(job.get("segments", []), job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], metrics, True, stop.is_set)
             if stop.is_set(): raise pipeline.CancelledError("job cancelled")
             update_job(jid, lambda current: current.update({"clips": clips, "metrics": {**current.get("metrics", {}), **metrics}, "status": "ready", "stage": "complete", "error": None}))
         except pipeline.CancelledError:
