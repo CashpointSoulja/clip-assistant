@@ -339,7 +339,7 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
         pass
     max_calls = int(os.getenv("MAX_ANALYSIS_CALLS", "40")); batches = []
     for i in range(0, len(segments), 80): batches.append((i, segments[i:min(len(segments), i + 100)]))
-    calls_needed = len(batches) + 1
+    calls_needed = len(batches) + 2
     if calls_needed > max_calls: raise RuntimeError("analysis exceeds bounded call budget")
     criterion_props = {x: {"type": "integer", "minimum": 0, "maximum": 4} for x in ("hook", "specificity", "payoff", "audience_fit", "coherence")}
     clip_schema = {"type": "object", "properties": {"ranges": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"type": "object", "properties": {"start_id": {"type": "integer"}, "end_id": {"type": "integer"}}, "required": ["start_id", "end_id"], "additionalProperties": False}}, "title": {"type": "string"}, "reason": {"type": "string"}, "criteria": {"type": "object", "properties": criterion_props, "required": list(criterion_props), "additionalProperties": False}, "risks": {"type": "array", "items": {"type": "string"}}}, "required": ["ranges", "title", "reason", "criteria", "risks"], "additionalProperties": False}
@@ -367,10 +367,37 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise RuntimeError("OpenAI editorial analysis failed: " + str(exc)[:180])
         batch_candidate_counts.append(batch_count)
+    if not model_candidates:
+        if metrics is not None: metrics.update({"analysis_calls": len(batches), "candidate_count": 0, "pre_rank_candidate_count": 0, "empty_reason": "discovery_empty", "cache_hit": False, "cache_bypass": force_new, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
+        return []
     if model_candidates and not all_clips:
+        if metrics is not None: metrics.update({"analysis_calls": len(batches), "candidate_count": 0, "pre_rank_candidate_count": 0, "empty_reason": "validation_rejected", "cache_hit": False, "cache_bypass": force_new, "rejected_candidates": rejected_candidates, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
         raise RuntimeError(f"OpenAI returned no valid candidates; rejected {rejected_candidates} candidate(s)")
-    # Keep every validated batch result until this single bounded global pass.
-    shortlist = _rank_candidates(all_clips)
+    # Keep every validated batch result until one shared-context model ranking pass.
+    rank_schema = {"type": "object", "properties": {"clips": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"id": {"type": "string"}, "score": {"type": "integer", "minimum": 0, "maximum": 100}}, "required": ["id", "score"], "additionalProperties": False}}}, "required": ["clips"], "additionalProperties": False}
+    rank_input = {"min_seconds": minimum, "max_seconds": maximum, "candidates": [{"id": c["id"], "title": c["title"], "reason": c["reason"], "criteria": c["criteria"], "ranges": c["ranges"], "text": " ".join(segments[i]["text"] for i in c["_ids"])} for c in all_clips]}
+    ranked = _openai_json(f"Prompt version: {PROMPT_VERSION}\nRank this complete candidate pool for {audience} using the supplied editorial evidence. Return at most 8 candidates, strongest first. Use every candidate ID exactly as supplied; do not invent, rename, merge, or omit IDs except to shortlist. Score 0 to 100 as an editorial ranking, not a factual or virality probability.\n" + json.dumps(rank_input), rank_schema)
+    ranked_items = ranked.get("clips", [])
+    if not isinstance(ranked_items, list): raise RuntimeError("OpenAI ranking returned invalid clips")
+    by_id = {c["id"]: c for c in all_clips}; seen_rank_ids = set(); shortlist = []
+    for item in ranked_items:
+        cid = item.get("id") if isinstance(item, dict) else None
+        # Accept old cached/test responders that return a full clip without an ID;
+        # live ranking remains strict because an unknown explicit ID is rejected.
+        if cid not in by_id and cid is None and isinstance(item, dict) and item.get("ranges"):
+            try:
+                probe = _validate_clip(item, segments, minimum, maximum)
+                match = next((c for c in all_clips if c["_ids"] == probe["_ids"]), None)
+                cid = match["id"] if match else None
+            except (ValueError, KeyError, TypeError):
+                cid = None
+        if cid is None: continue
+        if cid not in by_id: raise RuntimeError("OpenAI ranking returned invalid candidate ID")
+        if cid in seen_rank_ids: raise RuntimeError("OpenAI ranking returned duplicate candidate ID")
+        seen_rank_ids.add(cid); candidate = by_id[cid].copy(); candidate["score"] = int(item.get("score", candidate["score"])); shortlist.append(candidate)
+    if not shortlist:
+        if metrics is not None: metrics.update({"analysis_calls": len(batches) + 1, "candidate_count": 0, "pre_rank_candidate_count": len(all_clips), "empty_reason": "validation_rejected", "cache_hit": False, "cache_bypass": force_new, "rejected_candidates": rejected_candidates, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
+        return []
     audit_clip_schema = {"type": "object", "properties": {"id": {"type": "string"}, **clip_schema["properties"]}, "required": ["id", "ranges", "title", "reason", "criteria", "risks"], "additionalProperties": False}
     audit_schema = {"type": "object", "properties": {"clips": {"type": "array", "items": audit_clip_schema, "maxItems": 8}}, "required": ["clips"], "additionalProperties": False}
     if shortlist:
@@ -405,6 +432,7 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
             except (ValueError, KeyError, TypeError):
                 rejected_candidates += 1
         shortlist = sorted(repaired_shortlist, key=lambda c: (-c["score"], c["title"], tuple(c["_ids"])))
+        if not shortlist and metrics is not None: metrics["empty_reason"] = "audit_empty"
     for c in shortlist: c.pop("_ids", None); c.pop("_range_ids", None)
     if not force_new:
         try:
@@ -415,7 +443,7 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
         scores = [c["score"] for c in all_clips]
         mean = sum(scores) / len(scores) if scores else 0
         variance = sum((score - mean) ** 2 for score in scores) / len(scores) if scores else 0
-        metrics.update({"analysis_calls": len(batches) + (1 if all_clips else 0), "cache_hit": False, "cache_bypass": force_new, "candidate_count": len(shortlist), "pre_rank_candidate_count": len(all_clips), "batch_candidate_counts": batch_candidate_counts, "batch_score_variance": round(variance, 3), "rejected_candidates": rejected_candidates, "boundary_check_version": 2, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
+        metrics.update({"analysis_calls": len(batches) + 2, "cache_hit": False, "cache_bypass": force_new, "candidate_count": len(shortlist), "pre_rank_candidate_count": len(all_clips), "batch_candidate_counts": batch_candidate_counts, "batch_score_variance": round(variance, 3), "rejected_candidates": rejected_candidates, "boundary_check_version": 2, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
     return shortlist
 
 
