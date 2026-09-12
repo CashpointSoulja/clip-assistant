@@ -126,3 +126,11 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** Removed em-dash punctuation from visible UI copy, keeping the dark palette, single accent, compact labels, and restrained hierarchy consistent across the source, review, and output surfaces.
 
 **Verified:** Intro, hero-motion, browser smoke, and 36 Python tests pass. The refreshed local preview is open at `http://127.0.0.1:8765/`.
+
+### Loop 16 — redesign the review desk
+
+**Observed:** The signal dial and sticky player created too much vertical distance before the editor reached the actual candidate decisions.
+
+**Changed:** Reduced hero and dial scale, tightened panel rhythm, added a single accent line for candidate focus, added balanced heading wraps and tactile button feedback, and prevented the sticky player column from stretching the grid.
+
+**Verified:** Browser smoke still completes candidate playback and a real 480p export; 36 Python tests pass.
