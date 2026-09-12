@@ -41,11 +41,11 @@
         <fieldset><legend>Mode</legend><label class="radio"><input type="radio" name="mode" value="live" checked><span><strong>Live</strong><small class="sr-only">OpenAI reasoning, if configured</small></span></label><label class="radio"><input type="radio" name="mode" value="local"><span><strong>Local</strong><small class="sr-only">Passage suggestions; no AI scoring</small></span></label></fieldset>
       </div>
       <div class="action-row"><button id="analyze-btn" class="button button-accent" type="button" disabled>Find clips <span aria-hidden="true">→</span></button><p class="helper">Choose a video first.</p></div>
-      <div id="job-message" class="message" role="status" aria-live="polite" hidden></div><button id="retry-btn" class="button button-small button-outline" type="button" hidden>Retry this job</button>
+      <div id="job-message" class="message" role="status" aria-live="polite" hidden></div><button id="retry-btn" class="button button-small button-outline" type="button" hidden>Retry this job</button><button id="cancel-btn" class="button button-small button-outline" type="button" hidden>Stop</button>
     </section>
 
     <section id="workspace-panel" class="workspace panel dark-panel" aria-labelledby="workspace-title">
-      <div class="panel-heading"><div><span class="step">02</span><h2 id="workspace-title">Review</h2></div><div class="workspace-status"><select id="job-select" aria-label="Select saved job"><option value="">No saved jobs</option></select><span id="job-stage" class="state-pill muted">NO JOB</span></div></div>
+      <div class="panel-heading"><div><span class="step">02</span><h2 id="workspace-title">Review</h2></div><div class="workspace-status"><select id="job-select" aria-label="Select saved job"><option value="">No saved jobs</option></select><button id="another-btn" class="button button-small button-outline" type="button" hidden>Another take</button><button id="delete-job" class="button button-small button-outline" type="button" hidden>Delete</button><button id="clear-history" class="button button-small button-outline" type="button">Clear history</button><span id="cache-indicator" class="cache-indicator" hidden>Cached</span><span id="job-stage" class="state-pill muted">NO JOB</span></div></div>
       <div id="empty-workspace" class="empty-state"><div class="empty-glyph">◇</div><h3>Choose a source</h3></div>
       <div id="workspace-content" hidden>
         <div class="workspace-grid">

@@ -48,3 +48,17 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** Candidate selection now previews the first range immediately. The editor uses a solid surface in normal flow so the selected state remains legible without overlap.
 
 **Verified:** Browser regression confirms playback starts inside the selected range and the editor is opaque; GitHub Actions passes on commit `6a0a930`.
+
+### Loop 6 — make the workstation reversible
+
+**Observed:** Finished jobs and exports could only accumulate, long runs could not be stopped, and Whisper punctuation was being used as a false score penalty.
+
+**Changed:** Added per-job and bulk deletion that preserves source videos, cooperative cancellation with checkpoint resume, a truthful restart message, free-space guards before transcribe/export, visible cache state, and automatic prompt-version hashing. Boundary punctuation now remains a review warning without changing editorial scores.
+
+**Verified:** 29 Python tests pass, including delete/source preservation, cancel/retry, disk guard, score stability, and checkpoint behavior. Browser checks cover the new playback/editor interactions; GitHub Actions remains the final gate.
+
+### Loop 7 — keep exploration open
+
+**Changed:** Added an explicit `Another take` path for live jobs. It bypasses the canonical analysis cache, records the bypass metric, and leaves the first cached result intact for comparison.
+
+**Verified:** Cache-bypass regression passes without replacing the canonical cached answer; the local cancellation/delete smoke test leaves the source video untouched.

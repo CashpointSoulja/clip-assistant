@@ -24,6 +24,13 @@ class PipelineChecks(unittest.TestCase):
         original = [{"start": 0, "end": 2}]
         self.assertEqual(pipeline.snap_ranges_to_words(original, [{"start": 0, "end": 2, "text": "No words"}]), original)
 
+    def test_transcription_cancellation_is_cooperative(self):
+        with tempfile.TemporaryDirectory() as td:
+            model = Path(td) / "model.bin"; model.write_bytes(b"test")
+            with patch("pipeline.MODEL", model), patch("pipeline.tool_ok", return_value=True):
+                with self.assertRaises(pipeline.CancelledError):
+                    pipeline.transcribe(str(Path(td) / "x.mp4"), 601, should_cancel=lambda: True)
+
     def test_probe_rejects_video_without_audio(self):
         with tempfile.TemporaryDirectory() as td:
             src = Path(td) / "silent.mp4"; src.write_bytes(b"x")

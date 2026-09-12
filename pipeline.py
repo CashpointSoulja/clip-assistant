@@ -38,12 +38,17 @@ JOBS = DATA / "jobs"
 _turbo_model = ROOT / ".runtime" / "ggml-large-v3-turbo-q5_0.bin"
 _base_model = ROOT / ".runtime" / "ggml-base.en.bin"
 MODEL = Path(os.getenv("WHISPER_MODEL") or str(_turbo_model if _turbo_model.is_file() else _base_model))
-PROMPT_VERSION = "2026-09-12.v2"
+# ponytail: source hash keeps prompt edits cache-safe without a second version file.
+PROMPT_VERSION = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
 ANALYSIS_CACHE = DATA / "analysis-cache"
 EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".mts", ".m2ts"}
 FFMPEG = os.getenv("FFMPEG_BIN") or shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
 FFPROBE = os.getenv("FFPROBE_BIN") or shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
 WHISPER = os.getenv("WHISPER_BIN") or shutil.which("whisper-cli") or str(ROOT / ".runtime" / "whisper-cli")
+
+
+class CancelledError(RuntimeError):
+    pass
 
 
 def tool_ok(path: str) -> bool:
@@ -172,7 +177,7 @@ def _whisper_json(audio: str, offset: float, duration: float) -> list[dict[str, 
     return []
 
 
-def transcribe(path: str, duration: float, checkpoint: Path | None = None, progress: Callable[[int, int], None] | None = None) -> list[dict[str, Any]]:
+def transcribe(path: str, duration: float, checkpoint: Path | None = None, progress: Callable[[int, int], None] | None = None, should_cancel: Callable[[], bool] | None = None) -> list[dict[str, Any]]:
     if not tool_ok(FFMPEG) or not tool_ok(WHISPER) or not MODEL.is_file():
         raise RuntimeError("local transcription tools or model unavailable")
     # ponytail: bounded consecutive chunks; add word alignment if boundary cuts hurt review quality.
@@ -193,6 +198,8 @@ def transcribe(path: str, duration: float, checkpoint: Path | None = None, progr
         start = next_start
         total_chunks = max(1, math.ceil(duration / 300.0))
         while start < duration:
+            if should_cancel and should_cancel():
+                raise CancelledError("job cancelled")
             if progress:
                 progress(min(total_chunks, int(start // 300.0) + 1), total_chunks)
             length = min(300.0, duration - start)
@@ -273,23 +280,21 @@ def _apply_boundary_checks(clip: dict[str, Any], segments: list[dict[str, Any]])
             warnings.append("Transcript boundary may begin mid-thought; review the preceding question or setup.")
         if not re.search(r"[.!?](?:[\"'\u201d\u2019\u00bb)\]}]*)$", str(segments[end_id].get("text", "")).strip()):
             warnings.append("Transcript boundary may cut off the answer or qualification; review the following segment.")
-    if warnings:
-        clip["criteria"]["coherence"] = min(clip["criteria"]["coherence"], 1)
-        clip["score"] = sum(clip["criteria"].values()) * 5
-        for warning in warnings:
-            if warning not in clip["risks"]:
-                clip["risks"].append(warning)
+    # Punctuation is a weak proxy for an editorial boundary; keep the warning visible without changing the score.
+    for warning in warnings:
+        if warning not in clip["risks"]:
+            clip["risks"].append(warning)
     return clip
 
 
-def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum: int, mode: str = "local", metrics: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum: int, mode: str = "local", metrics: dict[str, Any] | None = None, force_new: bool = False) -> list[dict[str, Any]]:
     local = _heuristic(segments, audience, minimum, maximum)
     if mode != "live":
         return local
     cache_file = analysis_cache_path(segments, audience, minimum, maximum)
     try:
         cached = json.loads(cache_file.read_text()) if cache_file.is_file() else None
-        if cached and cached.get("prompt_version") == PROMPT_VERSION and isinstance(cached.get("clips"), list):
+        if not force_new and cached and cached.get("prompt_version") == PROMPT_VERSION and isinstance(cached.get("clips"), list):
             if metrics is not None: metrics.update({"analysis_calls": 0, "cache_hit": True, "prompt_version": PROMPT_VERSION})
             return cached["clips"]
     except (OSError, ValueError, TypeError):
@@ -361,15 +366,16 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
                 rejected_candidates += 1
         shortlist = sorted(repaired_shortlist, key=lambda c: (-c["score"], c["title"], tuple(c["_ids"])))
     for c in shortlist: c.pop("_ids", None); c.pop("_range_ids", None)
-    try:
-        _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "whisper_model": MODEL.name, "clips": shortlist})
-    except OSError:
-        pass
-    if metrics is not None: metrics.update({"analysis_calls": len(batches) + (1 if unique else 0), "cache_hit": False, "candidate_count": len(shortlist), "rejected_candidates": rejected_candidates, "boundary_check_version": 1, "prompt_version": PROMPT_VERSION})
+    if not force_new:
+        try:
+            _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "whisper_model": MODEL.name, "clips": shortlist})
+        except OSError:
+            pass
+    if metrics is not None: metrics.update({"analysis_calls": len(batches) + (1 if unique else 0), "cache_hit": False, "cache_bypass": force_new, "candidate_count": len(shortlist), "rejected_candidates": rejected_candidates, "boundary_check_version": 2, "prompt_version": PROMPT_VERSION})
     return shortlist
 
 
-def render(path: str, output: Path, ranges: list[dict[str, Any]]) -> None:
+def render(path: str, output: Path, ranges: list[dict[str, Any]], should_cancel: Callable[[], bool] | None = None) -> None:
     if not ranges or len(ranges) > 8: raise ValueError("ranges must contain 1 to 8 items")
     duration = probe(path)["duration"]
     clean = []
@@ -381,8 +387,12 @@ def render(path: str, output: Path, ranges: list[dict[str, Any]]) -> None:
     with tempfile.TemporaryDirectory(prefix="clip-render-") as td:
         parts = []
         for i, (start, end) in enumerate(clean):
+            if should_cancel and should_cancel():
+                raise CancelledError("job cancelled")
             part = Path(td) / f"part-{i}.mp4"; parts.append(part)
             _run([FFMPEG, "-y", "-ss", str(start), "-i", path, "-t", str(end-start), "-vf", "scale=-2:480", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", str(part)], 900)
+        if should_cancel and should_cancel():
+            raise CancelledError("job cancelled")
         listing = Path(td) / "concat.txt"; listing.write_text("\n".join("file '" + str(p).replace("'", "'\\''") + "'" for p in parts))
         _run([FFMPEG, "-y", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", "-movflags", "+faststart", str(output)], 900)
 
