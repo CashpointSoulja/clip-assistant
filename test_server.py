@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import server
 
@@ -61,7 +62,7 @@ class ServerChecks(unittest.TestCase):
                "clips": [{"id": "cand-1", "ranges": [{"start": 0, "end": 2}], "approved": False}], "exports": [], "metrics": {}}
         (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(job))
         started = threading.Event(); release = threading.Event(); original = server.pipeline.render
-        def fake_render(source, output, ranges):
+        def fake_render(source, output, ranges, should_cancel=None):
             started.set(); release.wait(3); output.write_bytes(b"clip")
         server.pipeline.render = fake_render
         try:
@@ -81,6 +82,40 @@ class ServerChecks(unittest.TestCase):
             self.assertEqual(len(saved["exports"]), 1); self.assertTrue(saved["clips"][0]["approved"])
         finally:
             server.pipeline.render = original
+
+    def test_delete_removes_job_artifacts_but_not_source(self):
+        jid = "b" * 32
+        job = {"id": jid, "status": "ready", "stage": "complete", "source_path": str(self.media), "duration": 10, "exports": [], "metrics": {}}
+        (server.pipeline.JOBS / f"{jid}.json").write_text(json.dumps(job))
+        (server.pipeline.JOBS / f"{jid}.transcript.json").write_text("{}")
+        export_dir = server.pipeline.JOBS / jid; export_dir.mkdir(exist_ok=True); (export_dir / "clip.mp4").write_bytes(b"clip")
+        status, _, data = self.request("DELETE", f"/api/jobs/{jid}")
+        self.assertEqual(status, 200); self.assertTrue(json.loads(data)["deleted"]); self.assertTrue(self.media.exists())
+        self.assertFalse((server.pipeline.JOBS / f"{jid}.json").exists()); self.assertFalse((server.pipeline.JOBS / f"{jid}.transcript.json").exists()); self.assertFalse(export_dir.exists())
+
+    def test_cancel_marks_active_job_and_retry_can_resume(self):
+        job = {"id": self.jid, "status": "processing", "stage": "transcribing", "source_path": str(self.media), "duration": 10, "exports": [], "metrics": {}}
+        (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(job))
+        status, _, data = self.request("POST", f"/api/jobs/{self.jid}/cancel", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual(status, 202); self.assertEqual(json.loads(data)["status"], "cancelling")
+        saved = server.pipeline.load_job(self.jid); self.assertEqual(saved["status"], "cancelling"); self.assertTrue(server.cancel_event(self.jid).is_set())
+        server.update_job(self.jid, lambda current: current.update({"status": "cancelled", "stage": "cancelled"}))
+        original = server.work; server.work = lambda _job: None
+        try:
+            status, _, data = self.request("POST", f"/api/jobs/{self.jid}/retry", b"{}", {"Content-Type": "application/json"})
+            self.assertEqual(status, 202); self.assertEqual(json.loads(data)["status"], "queued")
+        finally:
+            server.work = original
+
+    def test_disk_guard_has_truthful_failure(self):
+        with patch("server.shutil.disk_usage", return_value=type("Usage", (), {"free": 0})()):
+            with self.assertRaisesRegex(ValueError, "not enough free disk space"):
+                server.require_disk(self.media)
+
+    def test_restart_message_points_to_checkpoint_retry(self):
+        job = {"id": self.jid, "status": "processing", "stage": "transcribing", "source_path": str(self.media), "duration": 10, "exports": [], "metrics": {}}
+        (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(job)); server.recover()
+        self.assertIn("resume from its checkpoint", server.pipeline.load_job(self.jid)["error"])
 
 
 if __name__ == "__main__": unittest.main()

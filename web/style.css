@@ -393,3 +393,18 @@ video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #0c0d0e; 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* Carried over from main: rank marker + two-line titles, restyled for the dark workspace. */
+.clips { counter-reset: clip; }
+.clip-card { position: relative; counter-increment: clip; }
+.clip-card:before {
+  content: counter(clip, decimal-leading-zero); position: absolute; left: 1rem; top: 1.05rem;
+  font-family: var(--mono); font-size: var(--text-xs); color: var(--faint); letter-spacing: .08em;
+}
+.clip-card h4 {
+  padding-left: 1.9rem; display: -webkit-box; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; line-height: 1.25; overflow: hidden;
+}
+@media (max-width: 800px) { .player-column { display: contents } .video-wrap { grid-row: 1 } .player-tools { grid-row: 2 } .clips-column { grid-row: 3 } .transcript-panel { grid-row: 4 } }
+@media (max-width: 480px) { .top-status > span#health-label { display: inline; font-size: 10px; letter-spacing: -.01em; white-space: nowrap } }
+.cache-indicator { color: var(--muted); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase }

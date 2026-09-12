@@ -99,6 +99,7 @@
           <button id="analyze-btn" class="btn btn-accent" type="button" disabled>Find clips<span class="btn-arrow" aria-hidden="true">→</span></button>
           <p class="helper">Choose a video first.</p>
           <button id="retry-btn" class="btn btn-small btn-outline" type="button" hidden>Retry this job</button>
+          <button id="cancel-btn" class="btn btn-small btn-outline" type="button" hidden>Stop</button>
         </div>
         <div id="job-message" class="message" role="status" aria-live="polite" hidden></div>
       </div>
@@ -109,6 +110,10 @@
         <div class="panel-title"><span class="step">02</span><h2 id="workspace-title">REVIEW</h2></div>
         <div class="workspace-status">
           <select id="job-select" aria-label="Select saved job"><option value="">No saved jobs</option></select>
+          <button id="another-btn" class="btn btn-small btn-outline" type="button" hidden>Another take</button>
+          <button id="delete-job" class="btn btn-small btn-outline" type="button" hidden>Delete job</button>
+          <button id="clear-history" class="btn btn-small btn-outline" type="button">Clear history</button>
+          <span id="cache-indicator" class="cache-indicator" hidden>Cached</span>
           <span id="job-stage" class="state-pill muted">NO JOB</span>
         </div>
       </div>

@@ -37,6 +37,20 @@ class AnalysisChecks(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertIn(pipeline.PROMPT_VERSION, calls[0])
 
+    def test_another_take_bypasses_without_replacing_canonical_cache(self):
+        calls = []
+        def fake(prompt, schema):
+            calls.append(prompt)
+            if "Audit candidate boundaries" in prompt:
+                return {"clips": [{"id": "cand-ai-1", "ranges": [{"start_id": 0, "end_id": 2}], "title": "Fresh", "reason": "supported editorial angle", "criteria": {"hook": 4, "specificity": 3, "payoff": 2, "audience_fit": 1, "coherence": 0}, "risks": []}]}
+            return self._response([0, 2], "Fresh")
+        with tempfile.TemporaryDirectory() as td, patch.object(pipeline, "ANALYSIS_CACHE", Path(td)), patch.dict(os.environ, {"OPENAI_API_KEY": "test"}), patch("pipeline._openai_json", side_effect=fake):
+            pipeline.analyze(segs(5), "creators", 2, 20, "live")
+            cache_file = next(Path(td).glob("*.json")); before = cache_file.read_text()
+            pipeline.analyze(segs(5), "creators", 2, 20, "live", {}, True)
+            self.assertEqual(cache_file.read_text(), before)
+        self.assertEqual(len(calls), 4)
+
     def test_batches_cover_long_transcript_global_ids_and_audit(self):
         prompts = []
         def fake(prompt, schema):
@@ -117,8 +131,8 @@ class AnalysisChecks(unittest.TestCase):
         ]
         clip = {"criteria": {"hook": 4, "specificity": 4, "payoff": 4, "audience_fit": 4, "coherence": 4}, "score": 100, "risks": [], "_range_ids": [[1, 2], [4, 5]]}
         pipeline._apply_boundary_checks(clip, segments)
-        self.assertEqual(clip["criteria"]["coherence"], 1)
-        self.assertEqual(clip["score"], 85)
+        self.assertEqual(clip["criteria"]["coherence"], 4)
+        self.assertEqual(clip["score"], 100)
         self.assertEqual(len(clip["risks"]), 2)
 
     def test_audit_invalid_id_and_budget_fail_before_calls(self):
