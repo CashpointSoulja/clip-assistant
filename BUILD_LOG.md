@@ -12,7 +12,7 @@
 
 **Observed:** A long transcription only said `transcribing`, and mobile users had to pass the entire transcript before reaching candidates.
 
-**Changed:** The pipeline reports `transcribing chunk N of M`; the UI uses `Review ready` and `Export ready` states, keeps `Local ready` visible on mobile, makes the selected editor sticky on desktop, and places candidates before the full transcript on mobile.
+**Changed:** The pipeline reports `transcribing chunk N of M`; the UI uses `Review ready` and `Export ready` states, keeps `Local ready` visible on mobile, keeps the selected editor in normal flow on desktop, and places candidates before the full transcript on mobile.
 
 ### Verification
 
@@ -45,6 +45,6 @@ This is production-ready as a local-first editor workstation pilot. It intention
 
 **Observed:** Selecting a candidate opened its controls but left the playhead unchanged, and the sticky editor let the candidate list show through.
 
-**Changed:** Candidate selection now previews the first range immediately. The editor uses an opaque surface while sticky so the selected state remains legible.
+**Changed:** Candidate selection now previews the first range immediately. The editor uses a solid surface in normal flow so the selected state remains legible without overlap.
 
 **Verified:** Browser regression confirms playback starts inside the selected range and the editor is opaque; GitHub Actions passes on commit `6a0a930`.
