@@ -99,7 +99,7 @@ This is production-ready as a local-first editor workstation pilot. It intention
 
 **Observed:** Per-batch model scores were being treated as globally comparable, so early truncation could hide a stronger moment from a later batch.
 
-**Changed:** Live analysis now sends the complete validated candidate pool through one strict-ID ranking pass before context audit. Ranking evidence is deduplicated and capped per candidate to keep long interviews within a bounded prompt. Metrics record pre-rank count, batch counts, and empty-result reason.
+**Changed:** Live analysis now sends the complete validated candidate pool through one strict-ID ranking pass before context audit. Ranking evidence is deduplicated and capped per candidate to keep long interviews within a bounded prompt. Final clips retain the separate `ranking_score` alongside the audited rubric score. Metrics record pre-rank count, batch counts, and empty-result reason.
 
 **Verified:** Cross-batch ranking tests pass; 36 Python tests pass.
 
