@@ -47,6 +47,21 @@ def require_disk(path: Path) -> None:
         raise ValueError(f"not enough free disk space ({free // (1024 ** 3)} GB available; {MIN_FREE_BYTES // (1024 ** 3)} GB required)")
 
 
+def validate_source_identity(job: dict) -> Path:
+    """Reject stale jobs before opening their source media."""
+    source = Path(str(job.get("source_path", ""))).expanduser().resolve()
+    expected = job.get("source_identity")
+    if not expected:
+        raise RuntimeError("source identity unavailable; create a fresh job")
+    try:
+        current = pipeline.file_identity(source)
+    except OSError as exc:
+        raise FileNotFoundError("source file not found") from exc
+    if current != expected:
+        raise RuntimeError("source file changed; create a fresh job")
+    return source
+
+
 def update_job(jid: str, update) -> dict | None:
     with job_lock(jid):
         job = pipeline.load_job(jid)
@@ -179,7 +194,14 @@ class Handler(BaseHTTPRequestHandler):
                         target = None
                     else:
                         snapshot = public_job(job) if len(parts) == 3 else None
-                        target = next((Path(e["path"]) for e in job.get("exports", []) if e.get("filename") == parts[4]), None) if len(parts) == 5 and parts[3] == "exports" else Path(job["source_path"]) if len(parts) == 4 and parts[3] == "media" else None
+                        target = next((Path(e["path"]) for e in job.get("exports", []) if e.get("filename") == parts[4]), None) if len(parts) == 5 and parts[3] == "exports" else None
+                        if len(parts) == 4 and parts[3] == "media":
+                            try:
+                                target = validate_source_identity(job)
+                            except RuntimeError as exc:
+                                return self._send(409, {"error": str(exc)})
+                            except FileNotFoundError as exc:
+                                return self._send(404, {"error": str(exc)})
                 if snapshot is None and target is None and not job: return self._send(404, {"error": "job not found"})
                 if len(parts) == 3: return self._send(200, snapshot)
                 if len(parts) == 5 and parts[3] == "exports": return self._file(target, allow_range=True)
@@ -282,12 +304,13 @@ class Handler(BaseHTTPRequestHandler):
                         clip_id = body.get("clip_id"); clip = next((c for c in job.get("clips", []) if c.get("id") == clip_id), None); ranges = body.get("ranges")
                         if job.get("status") != "ready": raise RuntimeError("job is not ready for export")
                         if not clip or not isinstance(ranges, list) or not ranges or len(ranges) > 8: raise ValueError("clip and 1-8 ranges required")
-                        require_disk(Path(job["source_path"])); require_disk(pipeline.JOBS)
+                        source = validate_source_identity(job)
+                        require_disk(source); require_disk(pipeline.JOBS)
                         for r in ranges:
                             if not isinstance(r, dict): raise ValueError("invalid range")
                             start, end = float(r.get("start", -1)), float(r.get("end", -1))
                             if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end <= job["duration"] + .01): raise ValueError("range outside source bounds")
-                        ranges = pipeline.snap_ranges_to_words(ranges, job.get("segments", []))
+                        # Editor ranges are deliberate; generated ranges were snapped before editing.
                         export_dir = pipeline.JOBS / job["id"]; export_dir.mkdir(parents=True, exist_ok=True)
                         index = len(job.get("exports", [])) + 1
                         out = export_dir / f"{re.sub(r'[^A-Za-z0-9_-]', '-', str(clip_id))}-{index}.mp4"; job["status"], job["stage"] = "exporting", "rendering"; pipeline.save_job(job)
@@ -303,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise
                 def export() -> None:
                     try:
-                        pipeline.render(job["source_path"], out, ranges, stop.is_set); clip["approved"] = True; job.setdefault("exports", []).append({"id": clip_id, "filename": out.name, "path": str(out), "ranges": ranges}); job["status"], job["stage"] = "ready", "complete"
+                        pipeline.render(str(source), out, ranges, stop.is_set); clip["approved"] = True; job.setdefault("exports", []).append({"id": clip_id, "filename": out.name, "path": str(out), "ranges": ranges}); job["status"], job["stage"] = "ready", "complete"
                         update_job(job["id"], lambda current: (next((c for c in current.get("clips", []) if c.get("id") == clip_id), {}).update({"approved": True}), current.setdefault("exports", []).append({"id": clip_id, "filename": out.name, "path": str(out), "ranges": ranges}), current.update({"status": "ready", "stage": "complete"})))
                     except pipeline.CancelledError:
                         out.unlink(missing_ok=True)

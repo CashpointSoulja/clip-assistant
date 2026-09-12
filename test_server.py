@@ -16,7 +16,7 @@ class ServerChecks(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(); cls.root = Path(cls.temp.name)
         cls.old_jobs = server.pipeline.JOBS; server.pipeline.JOBS = cls.root / "jobs"; server.pipeline.JOBS.mkdir()
         cls.jid = "a" * 32; cls.media = cls.root / "source.mp4"; cls.media.write_bytes(b"0123456789")
-        (server.pipeline.JOBS / f"{cls.jid}.json").write_text(json.dumps({"id": cls.jid, "status": "ready", "stage": "complete", "source_path": str(cls.media), "duration": 10, "segments": [], "clips": [], "exports": [], "metrics": {}}))
+        (server.pipeline.JOBS / f"{cls.jid}.json").write_text(json.dumps({"id": cls.jid, "status": "ready", "stage": "complete", "source_path": str(cls.media), "source_identity": server.pipeline.file_identity(cls.media), "duration": 10, "segments": [], "clips": [], "exports": [], "metrics": {}}))
         cls.old_port = server.PORT
         cls.httpd = server.ThreadingHTTPServer((server.HOST, 0), server.Handler)
         server.PORT = cls.httpd.server_address[1]
@@ -40,7 +40,7 @@ class ServerChecks(unittest.TestCase):
         status, _, _ = self.request("GET", "/assets/../.env"); self.assertEqual(status, 404)
 
     def test_concurrent_retries_claim_one_worker(self):
-        failed = {"id": self.jid, "status": "failed", "stage": "error", "source_path": str(self.media), "duration": 10, "exports": [], "metrics": {}}
+        failed = {"id": self.jid, "status": "failed", "stage": "error", "source_path": str(self.media), "source_identity": server.pipeline.file_identity(self.media), "duration": 10, "exports": [], "metrics": {}}
         (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(failed))
         calls = []; gate = threading.Lock()
         original = server.work
@@ -58,7 +58,7 @@ class ServerChecks(unittest.TestCase):
             server.work = original
 
     def test_competing_exports_preserve_persisted_state(self):
-        job = {"id": self.jid, "status": "ready", "stage": "complete", "source_path": str(self.media), "duration": 10,
+        job = {"id": self.jid, "status": "ready", "stage": "complete", "source_path": str(self.media), "source_identity": server.pipeline.file_identity(self.media), "duration": 10,
                "clips": [{"id": "cand-1", "ranges": [{"start": 0, "end": 2}], "approved": False}], "exports": [], "metrics": {}}
         (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(job))
         started = threading.Event(); release = threading.Event(); original = server.pipeline.render
@@ -82,6 +82,37 @@ class ServerChecks(unittest.TestCase):
             self.assertEqual(len(saved["exports"]), 1); self.assertTrue(saved["clips"][0]["approved"])
         finally:
             server.pipeline.render = original
+
+    def test_export_preserves_explicit_editor_ranges(self):
+        job = {"id": self.jid, "status": "ready", "stage": "complete", "source_path": str(self.media), "source_identity": server.pipeline.file_identity(self.media), "duration": 10,
+               "clips": [{"id": "cand-1", "ranges": [{"start": 0, "end": 2}], "approved": False}], "exports": [], "metrics": {}}
+        (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(job))
+        seen = []; original = server.pipeline.render
+        def fake_render(source, output, ranges, should_cancel=None):
+            seen.extend(ranges); output.write_bytes(b"clip")
+        server.pipeline.render = fake_render
+        try:
+            submitted = [{"start": 0.37, "end": 1.83}]
+            status, _, _ = self.request("POST", f"/api/jobs/{self.jid}/export", json.dumps({"clip_id": "cand-1", "ranges": submitted}).encode())
+            self.assertEqual(status, 202)
+            for _ in range(30):
+                if seen: break
+                time.sleep(.02)
+            self.assertEqual(seen, submitted)
+        finally:
+            server.pipeline.render = original
+
+    def test_media_rejects_stale_source_identity(self):
+        stale = server.pipeline.file_identity(self.media)
+        self.media.write_bytes(b"changed-source")
+        try:
+            job = {"id": self.jid, "status": "ready", "stage": "complete", "source_path": str(self.media), "source_identity": stale, "duration": 10, "exports": [], "metrics": {}}
+            (server.pipeline.JOBS / f"{self.jid}.json").write_text(json.dumps(job))
+            status, _, data = self.request("GET", f"/api/jobs/{self.jid}/media")
+            self.assertEqual(status, 409)
+            self.assertIn("source file changed", json.loads(data)["error"])
+        finally:
+            self.media.write_bytes(b"0123456789")
 
     def test_delete_removes_job_artifacts_but_not_source(self):
         jid = "b" * 32
