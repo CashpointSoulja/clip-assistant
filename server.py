@@ -57,8 +57,9 @@ def work(job: dict) -> None:
             segments = pipeline.transcribe(job["source_path"], job["duration"], cp, transcribe_progress)
             numbered = [{"id": i, **s} for i, s in enumerate(segments)]
             update_job(jid, lambda current: current.update({"segments": numbered, "stage": "analysing"}))
-            clips = pipeline.analyze(segments, job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], {})
-            update_job(jid, lambda current: current.update({"clips": clips, "status": "ready", "stage": "complete"}))
+            analysis_metrics = {}
+            clips = pipeline.analyze(segments, job["audience"], job["min_seconds"], job["max_seconds"], job["mode"], analysis_metrics)
+            update_job(jid, lambda current: current.update({"clips": clips, "metrics": {**current.get("metrics", {}), **analysis_metrics}, "status": "ready", "stage": "complete"}))
         except Exception as exc:
             update_job(jid, lambda current: current.update({"status": "failed", "stage": "error", "error": str(exc)[:500]}))
         update_job(jid, lambda current: current.setdefault("metrics", {}).update({"elapsed_seconds": round(time.monotonic() - started, 3)}))
@@ -205,6 +206,7 @@ class Handler(BaseHTTPRequestHandler):
                             if not isinstance(r, dict): raise ValueError("invalid range")
                             start, end = float(r.get("start", -1)), float(r.get("end", -1))
                             if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end <= job["duration"] + .01): raise ValueError("range outside source bounds")
+                        ranges = pipeline.snap_ranges_to_words(ranges, job.get("segments", []))
                         export_dir = pipeline.JOBS / job["id"]; export_dir.mkdir(parents=True, exist_ok=True)
                         index = len(job.get("exports", [])) + 1
                         out = export_dir / f"{re.sub(r'[^A-Za-z0-9_-]', '-', str(clip_id))}-{index}.mp4"; job["status"], job["stage"] = "exporting", "rendering"; pipeline.save_job(job)

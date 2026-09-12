@@ -24,3 +24,19 @@
 ## Production boundary
 
 This is production-ready as a local-first editor workstation pilot. It intentionally does not claim SaaS production readiness: authentication, multi-user persistence, deployment, arbitrary 100 GB codec coverage, and observed producer adoption still need real operational evidence. The next loop is two producer sessions using real interviews, measuring time returned, verification rate, rework, export success, and repeat use before expanding the system.
+
+### Loop 3 — make the signal repeatable
+
+**Observed:** Live analysis had no replay boundary, the installed turbo model was unused, and cuts only knew segment edges.
+
+**Changed:** Added `PROMPT_VERSION`, a local cache keyed by transcript/settings/model/prompt version, stable tie ordering, and cache metrics. The runtime now defaults to `large-v3-turbo-q5_0` with `base.en` fallback, requests full Whisper JSON at temperature zero, preserves token-derived word spans, and snaps candidate/export ranges to those word edges when available.
+
+**Verified:** Same-input live analysis reuses the cached result without another model call; 24 Python tests pass; the actual turbo model produced 11 segments with word spans; the >5-minute integration run and 480p export pass.
+
+### Loop 4 — raise the transcript floor
+
+**Observed:** The stronger `large-v3-turbo-q5_0` model was present on the Mac but not selected, and segment-only timing left cuts several seconds wide.
+
+**Changed:** Fresh setup now downloads turbo with a documented `base.en` fallback. Full Whisper JSON is parsed into word spans, deterministic temperature-zero decoding is used, and candidate/export ranges snap to word edges when the spans are available. DTW remains disabled because the installed turbo build rejects the `large.v3` alignment preset.
+
+**Verified:** Turbo transcription produced 11 segments with word spans; the integration run completed in 18.35 seconds with a valid 854×480 export; 24 tests pass.

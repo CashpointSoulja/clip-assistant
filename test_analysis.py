@@ -13,8 +13,29 @@ def segs(n):
 
 
 class AnalysisChecks(unittest.TestCase):
+    def setUp(self):
+        self.cache_dir = tempfile.TemporaryDirectory()
+        self.cache_patch = patch.object(pipeline, "ANALYSIS_CACHE", Path(self.cache_dir.name))
+        self.cache_patch.start()
+        self.addCleanup(self.cache_patch.stop)
+        self.addCleanup(self.cache_dir.cleanup)
+
     def _response(self, ids, title="clip"):
         return {"clips": [{"ranges": [{"start_id": ids[0], "end_id": ids[-1]}], "title": title, "reason": "supported editorial angle", "criteria": {"hook": 4, "specificity": 3, "payoff": 2, "audience_fit": 1, "coherence": 0}, "risks": ["needs review"]}]}
+
+    def test_prompt_version_is_present_and_cache_is_reused(self):
+        calls = []
+        def fake(prompt, schema):
+            calls.append(prompt)
+            if "Audit candidate boundaries" in prompt:
+                return {"clips": [{"id": "cand-ai-1", "ranges": [{"start_id": 0, "end_id": 2}], "title": "Stable", "reason": "supported editorial angle", "criteria": {"hook": 4, "specificity": 3, "payoff": 2, "audience_fit": 1, "coherence": 0}, "risks": []}]}
+            return self._response([0, 2], "Stable")
+        with tempfile.TemporaryDirectory() as td, patch.object(pipeline, "ANALYSIS_CACHE", Path(td)), patch.dict(os.environ, {"OPENAI_API_KEY": "test"}), patch("pipeline._openai_json", side_effect=fake):
+            first = pipeline.analyze(segs(5), "creators", 2, 20, "live")
+            second = pipeline.analyze(segs(5), "creators", 2, 20, "live")
+        self.assertEqual(first, second)
+        self.assertEqual(len(calls), 2)
+        self.assertIn(pipeline.PROMPT_VERSION, calls[0])
 
     def test_batches_cover_long_transcript_global_ids_and_audit(self):
         prompts = []

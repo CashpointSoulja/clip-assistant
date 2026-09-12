@@ -8,6 +8,22 @@ import pipeline
 
 
 class PipelineChecks(unittest.TestCase):
+    def test_token_timestamps_are_grouped_into_words(self):
+        tokens = [
+            {"text": " Rel", "offsets": {"from": 100, "to": 200}},
+            {"text": "iable", "offsets": {"from": 200, "to": 400}},
+            {"text": " systems", "offsets": {"from": 450, "to": 700}},
+            {"text": ".", "offsets": {"from": 700, "to": 700}},
+        ]
+        words = pipeline.normalize_words(tokens)
+        self.assertEqual(words, [{"start": 0.1, "end": 0.4, "text": "Reliable"}, {"start": 0.45, "end": 0.7, "text": "systems."}])
+
+    def test_ranges_snap_to_word_edges_and_fallback_without_words(self):
+        segments = [{"start": 0, "end": 5, "text": "Hello world", "words": [{"start": 0.2, "end": 0.8, "text": "Hello"}, {"start": 1.0, "end": 1.6, "text": "world"}]}]
+        self.assertEqual(pipeline.snap_ranges_to_words([{"start": 0, "end": 2}], segments), [{"start": 0.2, "end": 1.6}])
+        original = [{"start": 0, "end": 2}]
+        self.assertEqual(pipeline.snap_ranges_to_words(original, [{"start": 0, "end": 2, "text": "No words"}]), original)
+
     def test_probe_rejects_video_without_audio(self):
         with tempfile.TemporaryDirectory() as td:
             src = Path(td) / "silent.mp4"; src.write_bytes(b"x")

@@ -50,7 +50,7 @@ The total is an explainable editorial opinion, not a predicted engagement rate. 
 
 ## Deliberate limits
 
-Mac-first, English transcription initially, at most one transcription job and one export at a time. Audio is transcribed in consecutive five-minute chunks: a sentence crossing a boundary may need correction; we do not guess new timestamps to merge text. No automatic publishing, vertical reframing, captions or cloud video storage. Original-video browser preview depends on browser codec support. A 100 GB file stays on disk, but that size is not a tested guarantee; duration, codec and available disk space affect processing. A dedicated OpenAI key is configured locally. On 11 September 2026, a 14-minute real video completed three live analysis runs with three final suggestions and one clean 90-second 480p export; two suggestions still needed trimming, and the scores remain uncalibrated editorial ratings.
+Mac-first, English transcription initially, at most one transcription job and one export at a time. Audio is transcribed in consecutive five-minute chunks: token timestamps improve edge snapping, but a sentence crossing a chunk boundary may still need correction. No automatic publishing, vertical reframing, captions or cloud video storage. Original-video browser preview depends on browser codec support. A 100 GB file stays on disk, but that size is not a tested guarantee; duration, codec and available disk space affect processing. A dedicated OpenAI key is configured locally. On 11 September 2026, a 14-minute real video completed three live analysis runs with three final suggestions and one clean 90-second 480p export; two suggestions still needed trimming, and the scores remain uncalibrated editorial ratings.
 
 ## Delivery order
 
@@ -81,7 +81,7 @@ flowchart TD
 | Python server (`server.py`) | Starts jobs, reports progress and serves local media | This Mac, on `127.0.0.1:8765` |
 | Media pipeline (`pipeline.py`) | Coordinates transcription, analysis and rendering | This Mac |
 | FFprobe / FFmpeg | Checks media, extracts audio and renders cuts | This Mac |
-| whisper.cpp + `base.en` | Converts English speech into timestamped transcript segments | This Mac |
+| whisper.cpp + `large-v3-turbo-q5_0` | Converts English speech into token-timestamped transcript segments | This Mac; `base.en` remains a low-memory fallback |
 | OpenAI Responses API + `gpt-5-mini` | Suggests passages, scores them and reviews surrounding context | OpenAI; text only |
 | Local JSON files (`.data/`) | Save jobs, transcript checkpoints, suggestions and export records | This Mac |
 
@@ -89,11 +89,11 @@ No cloud video upload, cloud database or web hosting is needed for this version.
 
 ### How a long recording becomes candidate clips
 
-1. **Read the source from disk.** FFmpeg processes consecutive five-minute audio chunks rather than loading the entire video into memory. Whisper's chunk timestamps are mapped back to the original recording. Checkpoints let an interrupted transcription resume.
-2. **Analyse manageable text batches.** Each OpenAI request receives up to 100 transcript segments, with 20 segments repeated between batches to retain context. Audio chunks themselves do not overlap. Segment IDs identify real transcript passages, so the model selects existing passages rather than inventing timestamps.
+1. **Read the source from disk.** FFmpeg processes consecutive five-minute audio chunks rather than loading the entire video into memory. Whisper's token timestamps are mapped back to the original recording and preserved as word spans. Checkpoints let an interrupted transcription resume.
+2. **Analyse manageable text batches.** Each OpenAI request receives up to 100 transcript segments, with 20 segments repeated between batches to retain context. Audio chunks themselves do not overlap. Segment IDs identify real transcript passages, so the model selects existing passages rather than inventing timestamps. Live results are cached by transcript, settings, model and `PROMPT_VERSION`.
 3. **Propose cuts and explain them.** The model returns a title, reason, five scores, risks, and one to three ordered source ranges per candidate. The Python code checks IDs, durations, duplicate ranges and score bounds, then keeps up to eight highest-scoring distinct candidates.
 4. **Review context separately.** Another model call reads shortlisted passages and surrounding transcript segments, and can reject candidates or add warnings. This checks for missing context; it does not independently fact-check the interview.
-5. **Let the editor decide.** The editor previews the original footage, adjusts cuts and approves the sequence. FFmpeg then renders the selected ranges in that order into a separate MP4, 480 pixels high with its aspect ratio preserved. An edited sequence can contain up to eight ranges.
+5. **Let the editor decide.** The editor previews the original footage, adjusts cuts and approves the sequence. Range edges snap to available word timestamps when present, then FFmpeg renders the selected ranges in that order into a separate MP4, 480 pixels high with its aspect ratio preserved. An edited sequence can contain up to eight ranges.
 
 ### What “high engagement” means in version one
 
