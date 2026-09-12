@@ -1,0 +1,141 @@
+const API = '';
+const state = { file: null, jobs: [], job: null, clip: null, ranges: [], poll: null };
+const $ = id => document.getElementById(id);
+const text = (el, value) => { el.textContent = value == null ? '' : String(value); };
+const fmt = seconds => { const s = Math.max(0, Number(seconds) || 0); return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; };
+function clipDescription(clip, index = 0) {
+  const raw = String(clip?.title || '').trim();
+  if (raw && !/^(?:provisional\s+)?(?:highlight|clip|candidate)(?:\s*#?\s*\d+)?$/i.test(raw)) return raw;
+  const ranges = Array.isArray(clip?.ranges) ? clip.ranges : [];
+  const segments = Array.isArray(state.job?.segments) ? state.job.segments : [];
+  const passage = segments.filter(segment => ranges.some(range => Number(segment.end) > Number(range.start) && Number(segment.start) < Number(range.end))).map(segment => segment.text).join(' ').replace(/\s+/g, ' ').trim();
+  const sentences = passage.match(/[^.!?]+[.!?](?=\s|$)/g) || [];
+  const firstSegment = segments.find(segment => ranges.some(range => Number(segment.end) > Number(range.start) && Number(segment.start) < Number(range.end)));
+  const startsMidSentence = /^[a-z]/.test(String(firstSegment?.text || '').trim());
+  const usable = sentences.filter((sentence, sentenceIndex) => !(startsMidSentence && sentenceIndex === 0));
+  const strongest = (usable.find(sentence => sentence.trim().length >= 55) || usable.find(sentence => sentence.trim().split(/\s+/).length >= 5) || usable[0] || sentences[0] || passage).trim();
+  const bounded = strongest.length > 82 ? `${strongest.slice(0, 82).replace(/\s+\S*$/, '')}…` : strongest;
+  return bounded || `Candidate ${String(index + 1).padStart(2, '0')}`;
+}
+function initIntro() {
+  const intro = $('intro-screen');
+  const skip = $('intro-skip');
+  if (!intro || !skip) return;
+  let seen = false;
+  const priorFocus = document.activeElement;
+  const appContent = [...document.querySelectorAll('body > header, body > main, body > footer')];
+  try { seen = window.sessionStorage.getItem('clip-assistant-intro-seen') === '1'; } catch {}
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  let active = false;
+  const cleanup = () => { appContent.forEach(el => { el.inert = false; }); active = false; };
+  const dismiss = () => {
+    intro.classList.add('is-dismissed');
+    intro.hidden = true;
+    intro.setAttribute('aria-hidden', 'true');
+    cleanup();
+    try { window.sessionStorage.setItem('clip-assistant-intro-seen', '1'); } catch {}
+    if (document.activeElement === skip && priorFocus && priorFocus.focus) priorFocus.focus();
+  };
+  skip.addEventListener('click', dismiss, { once: true });
+  if (seen || reduced) { dismiss(); return; }
+  const timer = window.setTimeout(dismiss, 2100);
+  skip.addEventListener('keydown', e => { if (e.key === 'Tab') e.preventDefault(); if (e.key === 'Escape') { window.clearTimeout(timer); dismiss(); } });
+  intro.addEventListener('keydown', e => { if (e.key === 'Escape') { window.clearTimeout(timer); dismiss(); } });
+  appContent.forEach(el => { el.inert = true; });
+  active = true;
+  window.setTimeout(() => { if (active) skip.focus(); }, 0);
+}
+function initHeroMotion() {
+  const root = document.querySelector('.intro-orbit');
+  const mainRoot = document.querySelector('.scene');
+  const motionTarget = document.querySelector('.hero-visual') || window;
+  const model = $('hero-model');
+  const mainModel = $('hero-model-main');
+  if (!root) return;
+  const motionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  const reduce = motionQuery?.matches;
+  const fine = window.matchMedia?.('(pointer: fine)').matches;
+  if (model) model.addEventListener('load', () => root.classList.add('model-ready'), { once: true });
+  if (reduce || !fine) return;
+  let frame = 0, targetX = 0, targetY = 0, x = 0, y = 0, last = 0, disabled = false;
+  const cancel = () => { if (frame) { cancelAnimationFrame(frame); frame = 0; } };
+  const move = e => {
+    if (disabled) return;
+    const bounds = motionTarget.getBoundingClientRect?.();
+    if (bounds && (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom)) return;
+    targetX = Math.max(-16, Math.min(16, (e.clientX / window.innerWidth - .5) * 32)); targetY = Math.max(-12, Math.min(12, (e.clientY / window.innerHeight - .5) * 24)); schedule();
+  };
+  const reset = () => { targetX = targetY = 0; schedule(); };
+  function schedule() { if (!disabled && !frame && !document.hidden) { last = performance.now(); frame = requestAnimationFrame(tick); } }
+  const tick = now => {
+    frame = 0; const dt = Math.min(40, now - last); last = now; const idle = Math.min(1, dt / 420);
+    x += (targetX - x) * idle; y += (targetY - y) * idle;
+    [root, mainRoot].filter(Boolean).forEach(node => { node.style.setProperty('--mx', x); node.style.setProperty('--my', y); });
+    [model, mainModel].filter(Boolean).forEach(node => { if (node.model) node.cameraOrbit = `${180 + x * .7}deg ${78 - y * .45}deg auto`; });
+    if (Math.abs(targetX - x) > .04 || Math.abs(targetY - y) > .04) schedule();
+  };
+  motionTarget.addEventListener('pointermove', move, { passive: true }); motionTarget.addEventListener('pointerleave', reset, { passive: true }); document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); else if (Math.abs(targetX - x) > .04 || Math.abs(targetY - y) > .04) schedule(); });
+  if (typeof motionQuery?.addEventListener === 'function') motionQuery.addEventListener('change', e => { disabled = e.matches; if (disabled) { cancel(); reset(); } });
+}
+async function api(path, options = {}) { const res = await fetch(API + path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } }); if (!res.ok) throw new Error((await res.text()) || `Request failed (${res.status})`); return res.json(); }
+function message(value, error = false) { const el = $('job-message'); el.hidden = !value; text(el, value); el.classList.toggle('error', error); }
+function setHealth(data, error = false) { const dot = $('health-dot'); const localReady = data?.ffmpeg && data?.whisper && data?.model; dot.className = `status-dot ${error ? 'bad' : localReady ? 'ok' : ''}`; text($('health-label'), error ? 'Backend unavailable' : localReady ? (data.openai ? 'Local services ready' : 'Local mode ready · Live unavailable') : 'Service setup needed'); const live = document.querySelector('input[value="live"]'); if (live) { live.disabled = !data?.openai; if (!data?.openai) { live.checked = false; document.querySelector('input[value="local"]').checked = true; } } const box = $('health-details'); box.replaceChildren(); if (data) Object.entries(data).forEach(([key, value]) => { const item = document.createElement('span'); item.className = value === true ? 'good' : value === false ? 'bad' : ''; text(item, `${key.replaceAll('_', ' ')}: ${value === true ? 'ready' : value === false ? 'not configured' : value}`); box.append(item); }); }
+async function health() { try { setHealth(await api('/api/health')); } catch { setHealth(null, true); } }
+function syncSourceAffordances() { const action = document.querySelector('.file-action'); const fileRow = document.querySelector('.file-row'); if (action) text(action, state.file ? 'Replace source →' : state.job ? 'Choose another video →' : 'Choose a local video →'); if (fileRow) fileRow.setAttribute('aria-label', state.file ? 'Replace local video' : 'Choose a local video'); const helper = document.querySelector('.action-row .helper'); if (helper) text(helper, state.file ? 'Ready.' : 'Choose a video first.'); }
+function selectFile(path) { if (!path) return; state.file = path; const display = $('file-display'); display.replaceChildren(); const strong = document.createElement('strong'); text(strong, path.split('/').pop()); const span = document.createElement('span'); span.className = 'file-path'; text(span, 'Local video'); display.append(strong, span); display.title = path; display.setAttribute('aria-label', path); delete display.dataset.resumed; $('analyze-btn').disabled = false; $('setup-state').className = 'state-pill'; text($('setup-state'), 'FILE READY'); syncSourceAffordances(); }
+async function pickFile() { try { const result = await api('/api/pick', { method: 'POST', body: '{}' }); if (result?.path) selectFile(result.path); } catch { const path = window.prompt('Enter the full local path to a video file:'); selectFile(path?.trim()); } }
+async function startJob() { if (!state.file) return; clearInterval(state.poll); state.job = null; state.clip = null; state.ranges = []; $("clip-editor").hidden = true; $("exports-panel").hidden = true; $("workspace-content").hidden = true; $("empty-workspace").hidden = false; text($("job-stage"), "QUEUED"); updateChapterNav(); const mode = document.querySelector('input[name="mode"]:checked').value; const body = { path: state.file, audience: $('audience').value, min_seconds: Number($('min-seconds').value), max_seconds: Number($('max-seconds').value), mode }; try { $('analyze-btn').disabled = true; message('Starting transcription…'); const job = await api('/api/jobs', { method: 'POST', body: JSON.stringify(body) }); state.job = job; await loadJobs(); renderJob(); poll(); } catch (e) { message(e.message, true); $('analyze-btn').disabled = false; } }
+function compactJobs(jobs) { const groups = new Map(); jobs.forEach(job => { const key = [job.source_name, job.duration, job.audience, job.min_seconds, job.max_seconds, job.mode].join('\u001f'); const current = groups.get(key); if (!current) groups.set(key, { ...job, historyCount: 1 }); else { current.historyCount += 1; if (job.id === state.job?.id) Object.assign(current, job); } }); return [...groups.values()]; }
+function jobLabel(job) { const count = job.historyCount > 1 ? ` · ${job.historyCount} runs` : ''; return `${job.source_name || 'Untitled'} · ${job.status || 'queued'}${count}`; }
+async function loadJobs() { try { state.jobs = compactJobs(await api('/api/jobs')); const select = $('job-select'); select.replaceChildren(); if (!state.jobs.length) { const empty = document.createElement('option'); empty.value = ''; text(empty, 'No saved jobs'); select.append(empty); return; } state.jobs.forEach(job => { const option = document.createElement('option'); option.value = job.id; text(option, jobLabel(job)); select.append(option); }); if (!state.job || !state.jobs.some(job => job.id === state.job.id)) state.job = state.jobs[0]; select.value = state.job.id; renderJob(); if (!['complete','completed','ready','failed','error'].includes(state.job.status)) poll(); } catch {} }
+function poll() { clearInterval(state.poll); state.poll = setInterval(async () => { if (!state.job?.id) return; try { state.job = await api(`/api/jobs/${encodeURIComponent(state.job.id)}`); renderJob(); if (['complete', 'completed', 'ready', 'error', 'failed'].includes(state.job.status) || state.job.stage === 'complete') clearInterval(state.poll); } catch (e) { message(e.message, true); clearInterval(state.poll); } }, 2000); }
+function updateChapterNav() { document.querySelectorAll('.chapter-nav a').forEach(link => { const id = link.getAttribute('href')?.slice(1); const target = id && document.getElementById(id); const available = id === 'setup-panel' ? true : id === 'workspace-panel' ? Boolean(state.job) : id === 'exports-panel' ? Boolean(state.job?.exports?.length || (target && !target.hidden)) : Boolean(target && !target.hidden); link.setAttribute('aria-disabled', available ? 'false' : 'true'); link.tabIndex = available ? 0 : -1; link.classList.toggle('is-disabled', !available); }); }
+function renderJob() { const job = state.job; if (!job) return; $('empty-workspace').hidden = true; $('workspace-content').hidden = false; const stage = job.stage || job.status || 'working'; text($('job-stage'), stage.replaceAll('_', ' ').toUpperCase()); $('job-stage').className = `state-pill ${['error','failed'].includes(job.status) ? 'error' : ''}`; $('retry-btn').hidden = !['error','failed'].includes(job.status); const done = ['complete','completed','ready'].includes(job.status) || stage === 'complete'; const terminal = done || ['error', 'failed'].includes(job.status); $('analyze-btn').disabled = !state.file || !terminal; const option = [...$('job-select').options].find(item => item.value === job.id); const history = state.jobs.find(item => item.id === job.id); if (option) text(option, jobLabel({ ...job, historyCount: history?.historyCount || job.historyCount })); if (job.error) message(job.error, true); else if (!done) message(`Working · ${stage.replaceAll('_', ' ')}`); else message(''); if (job.status === 'ready' && (job.exports || []).length) text($('export-message'), 'Ready.'); else if (['error', 'failed'].includes(job.status) && job.error) text($('export-message'), job.error); const video = $('video'); const src = job.id ? `/api/jobs/${encodeURIComponent(job.id)}/media` : ''; if (src && video.dataset.job !== job.id) { video.pause(); video.src = src; video.dataset.job = job.id; video.load(); $('video-empty').hidden = true; } renderTranscript(job.segments || []); renderClips(job.clips || []); renderExports(job.exports || []); updateChapterNav(); }
+function syncTranscriptPosition() { const current = Number($('video')?.currentTime) || 0; document.querySelectorAll('#transcript .segment').forEach(row => { const active = current >= Number(row.dataset.start) && current < Number(row.dataset.end); row.classList.toggle('active', active); if (active) row.setAttribute('aria-current', 'time'); else row.removeAttribute('aria-current'); }); }
+function renderTranscript(segments) { text($('segment-count'), `${segments.length} segment${segments.length === 1 ? '' : 's'}`); const root = $('transcript'); root.replaceChildren(); segments.forEach(seg => { const row = document.createElement('div'); row.className = 'segment'; row.dataset.start = seg.start; row.dataset.end = seg.end; row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-label', `Play transcript segment ${fmt(seg.start)} to ${fmt(seg.end)}`); const time = document.createElement('span'); time.className = 'segment-time'; text(time, `${fmt(seg.start)}–${fmt(seg.end)}`); const copy = document.createElement('span'); copy.className = 'segment-text'; text(copy, seg.text); row.append(time, copy); const seek = () => { $('video').currentTime = Number(seg.start) || 0; $('video').play().catch(() => {}); syncTranscriptPosition(); }; row.addEventListener('click', seek); row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seek(); } }); root.append(row); }); syncTranscriptPosition(); }
+function renderClips(clips) { text($('clip-count'), clips.length); const root = $('clips'); root.replaceChildren(); clips.forEach((clip, index) => { const card = document.createElement('article'); const titleText = clipDescription(clip, index); const riskText = clip.risks ? (Array.isArray(clip.risks) ? clip.risks.join('; ') : clip.risks) : ''; card.className = `clip-card ${state.clip?.id === clip.id ? 'selected' : ''}`; card.tabIndex = 0; card.setAttribute('role', 'button'); card.setAttribute('aria-label', `Review ${titleText}. ${clip.reason || 'Needs review'}${riskText ? `. ${riskText}` : ''}`); card.setAttribute('aria-controls', 'clip-editor'); const title = document.createElement('h4'); title.title = titleText; text(title, titleText); const meta = document.createElement('div'); meta.className = 'clip-meta'; const score = document.createElement('span'); score.className = 'score'; text(score, clip.score == null ? 'Manual' : `Score ${clip.score}`); const duration = document.createElement('span'); text(duration, `${(clip.ranges || []).length} range${(clip.ranges || []).length === 1 ? '' : 's'}`); meta.append(score, duration); const reason = document.createElement('p'); reason.className = 'clip-reason clip-detail'; text(reason, clip.reason || 'No reason supplied.'); card.append(title, meta, reason); const values = clip.criteria || {}; const hasCriteria = ['hook', 'specificity', 'payoff', 'audience_fit', 'coherence'].some(key => values[key] != null); if (hasCriteria) { const criteria = document.createElement('small'); criteria.className = 'clip-reason clip-criteria clip-detail'; const labels = ['hook', 'specificity', 'payoff', 'audience_fit', 'coherence']; text(criteria, `Criteria (0–4): ${labels.map(key => `${key}: ${values[key] ?? '—'}`).join(' · ')}`); card.append(criteria); } if (riskText) { const risk = document.createElement('small'); risk.className = 'risk clip-detail'; text(risk, `Review: ${riskText}`); card.append(risk); } const choose = () => openEditor(clip); card.addEventListener('click', choose); card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(); } }); root.append(card); }); const sequence = $('play-sequence'); const sequenceLabel = $('sequence-label'); if (sequence) { const ready = Boolean(state.clip && state.ranges.length); sequence.disabled = !ready; sequence.setAttribute('aria-disabled', String(!ready)); sequence.title = ready ? 'Play the selected ranges' : 'Select a candidate clip first'; if (sequenceLabel) { sequenceLabel.classList.toggle('sr-only', !ready); text(sequenceLabel, ready ? `${state.ranges.length} range${state.ranges.length === 1 ? '' : 's'}` : 'Select a clip'); } } }
+function openEditor(clip) { state.clip = clip; state.ranges = (clip.ranges || []).map(r => ({ start: Number(r.start), end: Number(r.end) })); const editor = $('clip-editor'); const clips = $('clips'); if (editor && clips?.parentElement) clips.parentElement.insertBefore(editor, clips); editor.hidden = false; text($('editor-title'), clipDescription(clip)); text($('editor-reason'), (clip.reason || '').replace(/^LOCAL heuristic suggestion; editor must assess /i, 'Review ') || 'Review ranges'); renderRanges(); renderClips(state.job.clips || []); editor.scrollIntoView({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); const heading = $('editor-title'); heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+function closeEditor(restoreFocus = false) { const editor = $('clip-editor'); if (!editor) return; const selected = document.querySelector('.clip-card.selected'); editor.hidden = true; state.clip = null; state.ranges = []; document.querySelectorAll('.clip-card.selected').forEach(card => { card.classList.remove('selected'); card.setAttribute('aria-expanded', 'false'); }); const sequence = $('play-sequence'); sequence.disabled = true; sequence.setAttribute('aria-disabled', 'true'); sequence.title = 'Select a candidate clip first'; const label = $('sequence-label'); label.classList.add('sr-only'); text(label, 'Select a clip'); if (restoreFocus) (selected || $('pick-btn'))?.focus(); }
+function renderRanges() { const root = $('ranges'); root.replaceChildren(); state.ranges.forEach((range, index) => { const row = document.createElement('div'); row.className = 'range-row'; ['start','end'].forEach(key => { const label = document.createElement('label'); text(label, key === 'start' ? 'Start (sec)' : 'End (sec)'); const input = document.createElement('input'); input.type = 'number'; input.min = 0; input.step = .1; input.value = range[key]; input.addEventListener('change', () => { state.ranges[index][key] = Number(input.value); }); label.append(input); row.append(label); }); const remove = document.createElement('button'); remove.type = 'button'; remove.setAttribute('aria-label', `Remove range ${index + 1}`); text(remove, '×'); remove.addEventListener('click', () => { state.ranges.splice(index, 1); renderRanges(); }); row.append(remove); root.append(row); }); }
+async function exportClip() { if (!state.job?.id || !state.clip || !state.ranges.length || state.ranges.length > 8 || state.ranges.some(r => !Number.isFinite(r.start) || !Number.isFinite(r.end) || r.start < 0 || r.end <= r.start || r.end > Number(state.job.duration) + .01)) { text($('export-message'), 'Add 1–8 valid ranges inside the source duration first.'); return; } const button = $('export-btn'); button.disabled = true; text($('export-message'), 'Preparing 480p export…'); try { const result = await api(`/api/jobs/${encodeURIComponent(state.job.id)}/export`, { method: 'POST', body: JSON.stringify({ clip_id: state.clip.id, ranges: state.ranges }) }); text($('export-message'), result?.message || 'Export queued.'); state.job = await api(`/api/jobs/${encodeURIComponent(state.job.id)}`); renderJob(); poll(); } catch (e) { text($('export-message'), e.message); } finally { button.disabled = false; } }
+let sequenceStop = null;
+function playSequence() { if (!state.clip) return; if (sequenceStop) $('video').removeEventListener('timeupdate', sequenceStop); const ranges = state.ranges; let i = 0; const video = $('video'); const next = () => { if (i >= ranges.length) { text($('sequence-label'), 'Sequence complete'); sequenceStop = null; return; } const range = ranges[i++]; video.currentTime = range.start; text($('sequence-label'), `Range ${i} of ${ranges.length}: ${fmt(range.start)}–${fmt(range.end)}`); video.play().catch(() => {}); sequenceStop = () => { if (video.currentTime >= range.end) { video.pause(); video.removeEventListener('timeupdate', sequenceStop); next(); } }; video.addEventListener('timeupdate', sequenceStop); }; next(); }
+function renderExports(exports) { const panel = $('exports-panel'); panel.hidden = !exports.length; const root = $('exports'); root.replaceChildren(); exports.forEach(item => { const row = document.createElement('div'); row.className = 'export-row'; const name = document.createElement('span'); text(name, item.filename || item.name || 'Export'); const link = document.createElement('a'); link.href = `/api/jobs/${encodeURIComponent(state.job.id)}/exports/${encodeURIComponent(item.filename || item.name || '')}`; link.download = ''; text(link, ['ready','completed'].includes(item.status) || !item.status ? 'Download 480p' : item.status || 'Processing…'); row.append(name, link); root.append(row); }); }
+initIntro();
+initHeroMotion();
+document.querySelectorAll('.chapter-nav a').forEach(link => link.addEventListener('click', e => { if (link.getAttribute('aria-disabled') === 'true') e.preventDefault(); }));
+updateChapterNav();
+$('video')?.addEventListener('timeupdate', syncTranscriptPosition); $('video')?.addEventListener('seeking', syncTranscriptPosition);
+$('pick-btn').addEventListener('click', pickFile); $('path-btn').addEventListener('click', () => selectFile($('path-input').value.trim())); $('analyze-btn').addEventListener('click', startJob); $('job-select').addEventListener('change', async () => { if (!$('job-select').value) return; clearInterval(state.poll); state.clip = null; state.ranges = []; state.job = await api(`/api/jobs/${encodeURIComponent($('job-select').value)}`); renderJob(); if (!['complete','completed','ready','failed','error'].includes(state.job.status)) poll(); }); $('retry-btn').addEventListener('click', async () => { try { state.job = await api(`/api/jobs/${encodeURIComponent(state.job.id)}/retry`, { method: 'POST', body: '{}' }); renderJob(); poll(); } catch (e) { message(e.message, true); } }); $('play-sequence').addEventListener('click', playSequence); $('add-range').addEventListener('click', () => { if (state.ranges.length >= 8) { text($('export-message'), 'A clip can contain at most 8 ranges.'); return; } state.ranges.push({ start: 0, end: Math.min(30, Number(state.job?.duration) || 30) }); renderRanges(); }); $('export-btn').addEventListener('click', exportClip); $('close-editor').addEventListener('click', () => closeEditor(true)); $('settings-btn').addEventListener('click', () => { $('settings-panel').hidden = false; $('settings-btn').setAttribute('aria-expanded', 'true'); $('close-settings').focus(); }); $('close-settings').addEventListener('click', () => { $('settings-panel').hidden = true; $('settings-btn').setAttribute('aria-expanded', 'false'); $('settings-btn').focus(); });
+document.addEventListener('keydown', e => { if (e.key !== 'Escape') return; if (!$('settings-panel').hidden) { $('settings-panel').hidden = true; $('settings-btn').setAttribute('aria-expanded', 'false'); $('settings-btn').focus(); } else if (!$('clip-editor').hidden) closeEditor(true); });
+health(); loadJobs();
+
+function initWorkflowAffordances() {
+  const fileRow = document.querySelector('.file-row');
+  if (fileRow) {
+    fileRow.setAttribute('role', 'button');
+    fileRow.tabIndex = 0;
+    fileRow.setAttribute('aria-label', 'Choose a local video');
+    const action = document.createElement('span'); action.className = 'file-action'; action.setAttribute('aria-hidden', 'true'); fileRow.append(action);
+    fileRow.addEventListener('click', pickFile);
+    fileRow.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFile(); } });
+  }
+  const clipsColumn = document.querySelector('.clips-column');
+  if (clipsColumn && !clipsColumn.querySelector('.clips-hint')) {
+    const hint = document.createElement('p'); hint.className = 'helper clips-hint'; text(hint, 'Select to edit.');
+    clipsColumn.querySelector('.subheading').after(hint);
+  }
+  const workspace = $('workspace-panel');
+  if (!workspace) return;
+  const summary = document.createElement('p'); summary.id = 'workspace-summary'; summary.className = 'workspace-summary'; summary.setAttribute('aria-live', 'polite'); workspace.querySelector('.empty-state').before(summary);
+  const sync = () => {
+    const stage = $('job-stage')?.textContent.trim(); const clips = $('clip-count')?.textContent.trim() || '0'; const exports = $('exports')?.querySelectorAll('a').length || 0;
+    if (state.job && stage) { const candidateCount = Number(clips) || 0; const exportLabel = `${exports} export${exports === 1 ? '' : 's'}`; const candidateLabel = `${candidateCount} candidate${candidateCount === 1 ? '' : 's'}`; const value = stage === 'COMPLETE' || stage === 'READY' ? `${candidateLabel} · ${exportLabel}` : `${stage} · ${candidateLabel}`; if (summary.textContent !== value) text(summary, value); }
+    const editorOpen = !$('clip-editor')?.hidden; document.querySelectorAll('.clip-card').forEach(card => card.setAttribute('aria-expanded', editorOpen && card.classList.contains('selected') ? 'true' : 'false'));
+    if (!state.file && state.job) { const display = $('file-display'); if (display && !display.dataset.resumed) { display.replaceChildren(); const strong = document.createElement('strong'); text(strong, `Resuming ${state.job.source_name || 'saved source'}`); display.append(strong); display.dataset.resumed = '1'; text($('setup-state'), 'RESUMING'); } }
+    syncSourceAffordances();
+  };
+  new MutationObserver(sync).observe(workspace, { childList: true, subtree: true, characterData: true });
+  sync();
+}
+initWorkflowAffordances();

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f2f3f1">
+  <title>Clip Assistant</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="assets/vendor/model-viewer-4.0.0.min.js"></script>
+</head>
+<body>
+  <aside id="intro-screen" class="intro-screen" role="dialog" aria-modal="true" aria-label="Clip Assistant introduction">
+    <div class="intro-frame">
+      <div class="intro-topline"><span class="intro-mark">CA / 01</span><span>LOCAL EDITORIAL WORKSPACE</span></div>
+      <div class="intro-stage">
+        <div class="intro-copy">
+          <p class="intro-kicker">Clip Assistant / 01</p>
+          <h1>The<br><em>cutting room.</em></h1>
+          <span class="intro-rule" aria-hidden="true"></span>
+        </div>
+        <div class="intro-orbit" aria-hidden="true"><model-viewer id="hero-model" src="assets/3d/hero.glb" poster="assets/3d/hero-poster.png" interaction-prompt="none" disable-zoom exposure="1.1" shadow-intensity="0" alt=""><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="orbit-core">CA<span>01 / FIND THE SIGNAL</span></div></model-viewer></div>
+      </div>
+      <div class="intro-bottomline"><span>TRANSCRIBE · REVIEW · EXPORT</span><button id="intro-skip" class="intro-skip" type="button">Skip intro <span aria-hidden="true">→</span></button></div>
+    </div>
+  </aside>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Clip Assistant home"><span class="brand-mark">CA</span><span>Clip Assistant</span></a>
+    <div class="top-status"><span id="health-dot" class="status-dot" aria-hidden="true"></span><span id="health-label">Checking local services…</span><button id="settings-btn" class="icon-btn" type="button" aria-controls="settings-panel" aria-expanded="false" aria-label="Open settings">Settings</button></div>
+  </header>
+  <main class="shell">
+    <section class="intro">
+      <div class="intro-copy"><p class="eyebrow">CLIP ASSISTANT / EDITORIAL WORKSPACE</p><h1>The<br><em>cutting room.</em></h1><button id="pick-btn" class="button button-accent hero-cta" type="button">Choose video <span aria-hidden="true">→</span></button><nav class="chapter-nav" aria-label="Workflow chapters"><a href="#setup-panel"><span>01</span><strong>Set up</strong></a><a href="#workspace-panel"><span>02</span><strong>Edit</strong></a><a href="#exports-panel"><span>03</span><strong>Output</strong></a></nav></div>
+      <div class="hero-visual"><div class="scene"><span class="scene-label">01 / SIGNAL IN</span><span class="scene-crosshair" aria-hidden="true"></span><model-viewer id="hero-model-main" src="assets/3d/hero.glb" poster="assets/3d/hero-poster.png" interaction-prompt="none" disable-zoom exposure="1.1" shadow-intensity="0" alt="A sculptural chrome orbit representing an editorial signal"></model-viewer></div><div class="trust-note"><span class="trust-icon">⌁</span><span>On-device<br><small>Source stays local.</small></span></div></div>
+    </section>
+    <section id="setup-panel" class="setup panel light-panel" aria-labelledby="setup-title">
+      <div class="panel-heading"><div><span class="step">01</span><h2 id="setup-title">Source</h2></div><span id="setup-state" class="state-pill">READY</span></div>
+      <div class="file-row"><div id="file-display" class="file-display"><strong>No source</strong><span>Local video</span></div></div><details class="path-fallback"><summary>Use path instead</summary><div class="path-entry"><label for="path-input">Local path<input id="path-input" type="text" placeholder="/Users/you/Interviews/session.mp4"></label><button id="path-btn" class="button button-small button-outline" type="button">Use path</button></div></details>
+      <div class="options-grid">
+        <label>Audience<select id="audience"><option value="general">General audience</option><option value="founders">Founders &amp; operators</option><option value="investors">Investors</option><option value="developers">Developers</option><option value="customers">Customers</option></select></label>
+        <label>Length <span class="label-note">seconds</span><div class="range-fields"><input id="min-seconds" type="number" min="30" max="300" value="30" aria-label="Minimum clip length"><span>to</span><input id="max-seconds" type="number" min="30" max="600" value="90" aria-label="Maximum clip length"></div></label>
+        <fieldset><legend>Mode</legend><label class="radio"><input type="radio" name="mode" value="live" checked><span><strong>Live</strong><small class="sr-only">OpenAI reasoning, if configured</small></span></label><label class="radio"><input type="radio" name="mode" value="local"><span><strong>Local</strong><small class="sr-only">Passage suggestions; no AI scoring</small></span></label></fieldset>
+      </div>
+      <div class="action-row"><button id="analyze-btn" class="button button-accent" type="button" disabled>Find clips <span aria-hidden="true">→</span></button><p class="helper">Choose a video first.</p></div>
+      <div id="job-message" class="message" role="status" aria-live="polite" hidden></div><button id="retry-btn" class="button button-small button-outline" type="button" hidden>Retry this job</button>
+    </section>
+
+    <section id="workspace-panel" class="workspace panel dark-panel" aria-labelledby="workspace-title">
+      <div class="panel-heading"><div><span class="step">02</span><h2 id="workspace-title">Review</h2></div><div class="workspace-status"><select id="job-select" aria-label="Select saved job"><option value="">No saved jobs</option></select><span id="job-stage" class="state-pill muted">NO JOB</span></div></div>
+      <div id="empty-workspace" class="empty-state"><div class="empty-glyph">◇</div><h3>Choose a source</h3></div>
+      <div id="workspace-content" hidden>
+        <div class="workspace-grid">
+          <div class="player-column"><div class="video-wrap"><video id="video" controls preload="metadata" aria-label="Source video"></video><div id="video-empty" class="video-empty">Preview</div></div><div class="player-tools"><button id="play-sequence" class="button button-small" type="button">▶ Play sequence</button><span id="sequence-label" class="sr-only">Select a clip</span></div><div class="transcript-panel"><div class="subheading"><h3>Transcript</h3><span id="segment-count">0 segments</span></div><div id="transcript" class="transcript" tabindex="0"></div></div></div>
+          <aside class="clips-column"><div class="subheading"><h3>Candidates</h3><span id="clip-count">0</span></div><div id="clips" class="clips"></div><div id="clip-editor" class="clip-editor" hidden><div class="subheading"><h3 id="editor-title">Edit ranges</h3><button id="close-editor" class="text-btn" type="button">Done</button></div><p id="editor-reason" class="editor-reason"></p><div id="ranges" class="ranges"></div><button id="add-range" class="button button-small button-outline" type="button">＋ Add range</button><button id="export-btn" class="button button-export" type="button" aria-label="Approve selected clip and export a 480p video">Export 480p <span aria-hidden="true">→</span></button><p id="export-message" class="helper"></p></div></aside>
+        </div>
+      </div>
+    </section>
+    <section id="exports-panel" class="exports panel" aria-labelledby="exports-title" hidden><div class="panel-heading"><div><span class="step">03</span><h2 id="exports-title">Exports</h2></div></div><div id="exports"></div></section>
+    <section id="settings-panel" class="settings panel" aria-labelledby="settings-title" hidden><div class="panel-heading"><div><span class="step">INFO</span><h2 id="settings-title">Settings</h2></div><button id="close-settings" class="text-btn" type="button">Close</button></div><p>Local first. Keys stay on this Mac.</p><div id="health-details" class="health-details"></div></section>
+  </main>
+  <footer><span>Clip Assistant</span><a href="/PLAN.md">Plan</a><span aria-label="Editorial scores guide review; they do not predict engagement.">Scores guide review.</span></footer>
+  <script src="app.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+@google/model-viewer 4.0.0
+https://github.com/google/model-viewer
+
+Copyright 2017 Google LLC
+SPDX-License-Identifier: BSD-3-Clause
+
+The vendored ESM bundle is model-viewer-4.0.0.min.js. Its bundled dependencies retain their upstream license headers. This file is included with the local runtime for redistribution notice purposes.
