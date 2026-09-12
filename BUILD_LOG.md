@@ -62,3 +62,11 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** Added an explicit `Another take` path for live jobs. It bypasses the canonical analysis cache, records the bypass metric, and leaves the first cached result intact for comparison.
 
 **Verified:** Cache-bypass regression passes without replacing the canonical cached answer; the local cancellation/delete smoke test leaves the source video untouched.
+
+### Loop 8 — keep the editing state singular
+
+**Observed:** The dark redesign kept `Select to edit.` visible above an open editor, making one action look like two competing states.
+
+**Changed:** The hint now disappears while the editor is open.
+
+**Verified:** Browser check confirms the hint is hidden, candidate playback starts, and the dark editor remains legible.

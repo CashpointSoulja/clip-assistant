@@ -359,6 +359,7 @@ video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #0c0d0e; 
 .clip-criteria { font-family: var(--mono); }
 .risk { color: color-mix(in srgb, var(--yellow) 70%, white); }
 .clips-hint { padding: var(--gap); border: 1px dashed var(--hair-strong); border-radius: var(--radius); }
+.clips-column:has(#clip-editor:not([hidden])) .clips-hint { display: none; }
 
 .clip-editor { border: 1px solid var(--hair-strong); border-radius: var(--radius); padding: 1rem; display: grid; gap: .75rem; background: var(--surface); }
 .editor-reason { font-size: var(--text-sm); color: var(--muted); }
