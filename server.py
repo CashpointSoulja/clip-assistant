@@ -144,7 +144,7 @@ def recover() -> None:
             job = json.loads(p.read_text())
             if job.get("status") in {"queued", "processing", "exporting", "cancelling"}:
                 job["status"], job["stage"], job["error"] = "failed", "restart", "Interrupted by server restart; Retry this job to resume from its checkpoint."
-                p.write_text(json.dumps(job, indent=2))
+                pipeline._write_json(p, job)
         except (OSError, ValueError):
             continue
 
