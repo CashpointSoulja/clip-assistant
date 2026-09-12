@@ -70,3 +70,19 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** The hint now disappears while the editor is open.
 
 **Verified:** Browser check confirms the hint is hidden, candidate playback starts, and the dark editor remains legible.
+
+### Loop 9 — preserve the editor’s intent
+
+**Observed:** Playback could run past a selected range, async job responses could arrive out of order, and manual trims could disappear when the editor switched context.
+
+**Changed:** Candidate preview now uses the full selected sequence and stops at its end. Job polling, selection, new-run, delete, clear, and export responses are guarded against stale state. Manual ranges persist locally per job and candidate and restore after refresh.
+
+**Verified:** The browser flow passes with a real 480p export; 32 Python tests and JavaScript regression checks pass.
+
+### Loop 10 — protect provenance
+
+**Observed:** A checkpoint could be reused after the source file or Whisper model changed, and reasoning-effort changes could reuse a low-effort analysis cache.
+
+**Changed:** Jobs and checkpoints now record source identity, Whisper identity, and reasoning effort. Changed inputs are rejected with a fresh-job message; cache keys include the active reasoning configuration.
+
+**Verified:** Provenance tests pass, including changed-source rejection and cache-key separation.

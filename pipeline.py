@@ -47,6 +47,27 @@ FFPROBE = os.getenv("FFPROBE_BIN") or shutil.which("ffprobe") or "/opt/homebrew/
 WHISPER = os.getenv("WHISPER_BIN") or shutil.which("whisper-cli") or str(ROOT / ".runtime" / "whisper-cli")
 
 
+def file_identity(path: str | Path) -> dict[str, Any]:
+    """Return a cheap identity that invalidates reuse when a file is replaced."""
+    resolved = Path(path).expanduser().resolve()
+    stat = resolved.stat()
+    # ponytail: sample only the ends of large media; full hashing belongs in a content-addressed store.
+    sample = 1024 * 1024
+    with resolved.open("rb") as handle:
+        head = handle.read(sample)
+        if stat.st_size > sample:
+            handle.seek(-sample, os.SEEK_END)
+            head += handle.read(sample)
+    return {"path": str(resolved), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sample_sha256": hashlib.sha256(head).hexdigest()}
+
+
+def model_identity() -> dict[str, Any]:
+    try:
+        return file_identity(MODEL)
+    except OSError:
+        return {"path": str(MODEL.expanduser().resolve()), "missing": True}
+
+
 class CancelledError(RuntimeError):
     pass
 
@@ -62,7 +83,7 @@ def health() -> dict[str, Any]:
 
 
 def analysis_cache_path(segments: list[dict[str, Any]], audience: str, minimum: int, maximum: int) -> Path:
-    payload = {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "whisper_model": MODEL.name, "audience": audience, "minimum": minimum, "maximum": maximum, "segments": segments}
+    payload = {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low"), "whisper_model": MODEL.name, "audience": audience, "minimum": minimum, "maximum": maximum, "segments": segments}
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return ANALYSIS_CACHE / f"{digest}.json"
 
@@ -177,9 +198,13 @@ def _whisper_json(audio: str, offset: float, duration: float) -> list[dict[str, 
     return []
 
 
-def transcribe(path: str, duration: float, checkpoint: Path | None = None, progress: Callable[[int, int], None] | None = None, should_cancel: Callable[[], bool] | None = None) -> list[dict[str, Any]]:
+def transcribe(path: str, duration: float, checkpoint: Path | None = None, progress: Callable[[int, int], None] | None = None, should_cancel: Callable[[], bool] | None = None, source_meta: dict[str, Any] | None = None, whisper_meta: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     if not tool_ok(FFMPEG) or not tool_ok(WHISPER) or not MODEL.is_file():
         raise RuntimeError("local transcription tools or model unavailable")
+    if source_meta is not None and file_identity(path) != source_meta:
+        raise RuntimeError("source file changed; create a fresh job")
+    if whisper_meta is not None and model_identity() != whisper_meta:
+        raise RuntimeError("transcription model changed; create a fresh job")
     # ponytail: bounded consecutive chunks; add word alignment if boundary cuts hurt review quality.
     raw_chunks: list[dict[str, Any]] = []
     next_start = 0.0
@@ -188,6 +213,10 @@ def transcribe(path: str, duration: float, checkpoint: Path | None = None, progr
             saved = json.loads(checkpoint.read_text())
             if saved.get("schema_version") != 2:
                 raise ValueError("old checkpoint schema")
+            if source_meta is not None and saved.get("source_identity") != source_meta:
+                raise RuntimeError("checkpoint source changed; starting a fresh transcription is required")
+            if whisper_meta is not None and saved.get("whisper_identity") != whisper_meta:
+                raise RuntimeError("checkpoint transcription model changed; starting a fresh transcription is required")
             raw_chunks = saved.get("raw_chunks", [])
             next_start = float(saved.get("next_start", 0))
             if saved.get("complete"):
@@ -208,7 +237,7 @@ def transcribe(path: str, duration: float, checkpoint: Path | None = None, progr
             got = _whisper_json(audio, start, duration)
             raw_chunks.extend(got)
             if checkpoint:
-                _write_json(checkpoint, {"schema_version": 2, "complete": False, "next_start": min(duration, start + 300.0), "raw_chunks": raw_chunks})
+                _write_json(checkpoint, {"schema_version": 2, "complete": False, "next_start": min(duration, start + 300.0), "raw_chunks": raw_chunks, "source_identity": source_meta, "whisper_identity": whisper_meta})
             if start + length >= duration:
                 break
             start += 300.0
@@ -217,7 +246,7 @@ def transcribe(path: str, duration: float, checkpoint: Path | None = None, progr
     # Chunks are deliberately non-overlapping; source timestamps remain untouched.
     out.extend(sorted(raw_chunks, key=lambda x: (x["start"], x["end"])))
     if checkpoint:
-        _write_json(checkpoint, {"schema_version": 2, "complete": True, "next_start": duration, "raw_chunks": raw_chunks, "segments": out})
+        _write_json(checkpoint, {"schema_version": 2, "complete": True, "next_start": duration, "raw_chunks": raw_chunks, "segments": out, "source_identity": source_meta, "whisper_identity": whisper_meta})
     return out
 
 
@@ -294,8 +323,8 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
     cache_file = analysis_cache_path(segments, audience, minimum, maximum)
     try:
         cached = json.loads(cache_file.read_text()) if cache_file.is_file() else None
-        if not force_new and cached and cached.get("prompt_version") == PROMPT_VERSION and isinstance(cached.get("clips"), list):
-            if metrics is not None: metrics.update({"analysis_calls": 0, "cache_hit": True, "prompt_version": PROMPT_VERSION})
+        if not force_new and cached and cached.get("prompt_version") == PROMPT_VERSION and cached.get("reasoning_effort", "low") == os.getenv("OPENAI_REASONING_EFFORT", "low") and isinstance(cached.get("clips"), list):
+            if metrics is not None: metrics.update({"analysis_calls": 0, "cache_hit": True, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
             return cached["clips"]
     except (OSError, ValueError, TypeError):
         pass
@@ -368,10 +397,10 @@ def analyze(segments: list[dict[str, Any]], audience: str, minimum: int, maximum
     for c in shortlist: c.pop("_ids", None); c.pop("_range_ids", None)
     if not force_new:
         try:
-            _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "whisper_model": MODEL.name, "clips": shortlist})
+            _write_json(cache_file, {"prompt_version": PROMPT_VERSION, "model": os.getenv("OPENAI_MODEL", "gpt-5-mini"), "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low"), "whisper_model": MODEL.name, "clips": shortlist})
         except OSError:
             pass
-    if metrics is not None: metrics.update({"analysis_calls": len(batches) + (1 if unique else 0), "cache_hit": False, "cache_bypass": force_new, "candidate_count": len(shortlist), "rejected_candidates": rejected_candidates, "boundary_check_version": 2, "prompt_version": PROMPT_VERSION})
+    if metrics is not None: metrics.update({"analysis_calls": len(batches) + (1 if unique else 0), "cache_hit": False, "cache_bypass": force_new, "candidate_count": len(shortlist), "rejected_candidates": rejected_candidates, "boundary_check_version": 2, "prompt_version": PROMPT_VERSION, "reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low")})
     return shortlist
 
 
@@ -400,7 +429,7 @@ def render(path: str, output: Path, ranges: list[dict[str, Any]], should_cancel:
 def new_job(path: str, audience: str, minimum: int, maximum: int, mode: str) -> dict[str, Any]:
     info = probe(path)
     jid = uuid.uuid4().hex
-    job = {"id": jid, "status": "queued", "stage": "queued", "error": None, "source_name": Path(path).name, "source_path": str(Path(path).resolve()), "duration": info["duration"], "segments": [], "clips": [], "exports": [], "metrics": {}, "prompt_version": PROMPT_VERSION, "whisper_model": MODEL.name, "audience": audience, "min_seconds": minimum, "max_seconds": maximum, "mode": mode}
+    job = {"id": jid, "status": "queued", "stage": "queued", "error": None, "source_name": Path(path).name, "source_path": str(Path(path).resolve()), "source_identity": file_identity(path), "duration": info["duration"], "segments": [], "clips": [], "exports": [], "metrics": {}, "prompt_version": PROMPT_VERSION, "whisper_model": MODEL.name, "whisper_identity": model_identity(), "openai_reasoning_effort": os.getenv("OPENAI_REASONING_EFFORT", "low"), "audience": audience, "min_seconds": minimum, "max_seconds": maximum, "mode": mode}
     _write_json(JOBS / f"{jid}.json", job)
     return job
 

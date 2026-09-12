@@ -89,7 +89,7 @@ def work(job: dict) -> None:
             # pipeline.transcribe owns checkpoint recovery, including partial files.
             def transcribe_progress(chunk: int, total: int) -> None:
                 update_job(jid, lambda current: current.update({"stage": f"transcribing chunk {chunk} of {total}"}))
-            segments = pipeline.transcribe(job["source_path"], job["duration"], cp, transcribe_progress, stop.is_set)
+            segments = pipeline.transcribe(job["source_path"], job["duration"], cp, transcribe_progress, stop.is_set, job.get("source_identity"), job.get("whisper_identity"))
             if stop.is_set(): raise pipeline.CancelledError("job cancelled")
             numbered = [{"id": i, **s} for i, s in enumerate(segments)]
             update_job(jid, lambda current: current.update({"segments": numbered, "stage": "analysing"}))
@@ -262,6 +262,10 @@ class Handler(BaseHTTPRequestHandler):
                         retry_error = (404, "job not found")
                     elif job.get("status") not in {"failed", "error", "cancelled"}:
                         retry_error = (409, "only failed jobs can be retried")
+                    elif job.get("source_identity") and pipeline.file_identity(job["source_path"]) != job["source_identity"]:
+                        retry_error = (409, "source file changed; create a fresh job")
+                    elif job.get("whisper_identity") and pipeline.model_identity() != job["whisper_identity"]:
+                        retry_error = (409, "transcription model changed; create a fresh job")
                     else:
                         retry_error = None
                         cancel_event(parts[2]).clear()
