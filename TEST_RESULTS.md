@@ -21,8 +21,8 @@ Historical snapshot: all 10 unit and HTTP tests passed (`python3 -m unittest -v 
 
 ## Current verification
 
-The current suite contains 30 unit and HTTP tests across `test_pipeline`, `test_analysis`, and `test_server`; the local run passed. The server tests use ephemeral ports. The real-video evidence remains the completed third live run in `.data/real-video-test/RESULTS.md`: three suggestions, one clean 90-second 480p export, two suggestions needing trim, and uncalibrated scores. No new paid API calls were made for this documentation update.
+The current suite contains 36 unit and HTTP tests across `test_pipeline`, `test_analysis`, `test_server`, and provenance/cancellation checks; the local run passed. The server tests use ephemeral ports. The real-video smoke returned 11 segments, 7 local candidates, and a valid 854x480 export; the >300 s transcription boundary check also passed. No new paid API calls were made for this documentation update.
 
 ## Browser verification
 
-`node test_ui.cjs` passed against a newly created job: 11 transcript segments with word spans, 7 local candidates, one completed export and a 321580-byte MP4 download. Desktop and mobile screenshots were captured. The HTTP tests also cover malformed JSON, foreign-origin rejection, byte ranges, path traversal, deletion/source preservation, cancel/retry, disk guards, and restart messaging. Analysis tests cover prompt version propagation, cache reuse, cache bypass, token-to-word parsing, score stability, and word-edge fallback.
+`node test_ui.cjs` passed against a newly created job: 11 transcript segments with word spans, 7 local candidates, one completed export and a 321580-byte MP4 download. Desktop and mobile screenshots were captured. The HTTP tests also cover malformed JSON, foreign-origin rejection, byte ranges, path traversal, deletion/source preservation, cancel/retry, disk guards, and restart messaging. Analysis tests cover prompt version propagation, cache reuse, cache bypass, shared-context ranking, token-to-word parsing, score stability, word-edge fallback, empty-result explanations, and cancellation guards.

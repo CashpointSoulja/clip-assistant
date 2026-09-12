@@ -86,3 +86,35 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** Jobs and checkpoints now record source identity, Whisper identity, and reasoning effort. Changed inputs are rejected with a fresh-job message; cache keys include the active reasoning configuration.
 
 **Verified:** Provenance tests pass, including changed-source rejection and cache-key separation.
+
+### Loop 11 — make async editing safe
+
+**Observed:** A delayed job action could restore an old selection; an open editor could survive a job switch; invalid manual ranges could reach playback.
+
+**Changed:** Retry, Stop, Another take, export, and job selection now guard against stale responses. Transitions close the editor and stop playback. Preview, sequence playback, and export share range validation and playback snapshots.
+
+**Verified:** Browser smoke passes with candidate playback, editor close cleanup, and a real 480p export.
+
+### Loop 12 — compare the whole candidate pool
+
+**Observed:** Per-batch model scores were being treated as globally comparable, so early truncation could hide a stronger moment from a later batch.
+
+**Changed:** Live analysis now sends the complete validated candidate pool through one strict-ID ranking pass before context audit. Ranking evidence is deduplicated and capped per candidate to keep long interviews within a bounded prompt. Metrics record pre-rank count, batch counts, and empty-result reason.
+
+**Verified:** Cross-batch ranking tests pass; 36 Python tests pass.
+
+### Loop 13 — stop paid work when the editor stops
+
+**Observed:** Stop could cancel transcription/export but editorial network calls continued through the remaining analysis stages.
+
+**Changed:** `analyze()` checks the job cancellation event before each batch, ranking pass, and audit call. A stopped job exits through the existing checkpoint-safe cancellation path.
+
+**Verified:** Cancellation regression prevents later model calls; full real-media integration remains green.
+
+### Loop 14 — measure repeatability honestly
+
+**Observed:** The existing score variance metric described one run, not run-to-run stability.
+
+**Changed:** Kept the metric scoped to one run and measured the local fixture five times separately rather than presenting it as live model calibration.
+
+**Evidence:** 5/5 local runs returned 7 candidates with 7/7 range overlap. Live uncached variance still requires a controlled API-backed evaluation with a fixed prompt/model budget.
