@@ -218,7 +218,7 @@ void main(){
       const count = cards.length;
       if (!count) {
         labelText.textContent = "NO CANDIDATES";
-        scoreText.textContent = "—";
+        scoreText.textContent = "·";
         titleText.textContent = "";
         return;
       }
