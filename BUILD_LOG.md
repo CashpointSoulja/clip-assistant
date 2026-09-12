@@ -118,3 +118,11 @@ This is production-ready as a local-first editor workstation pilot. It intention
 **Changed:** Kept the metric scoped to one run and measured the local fixture five times separately rather than presenting it as live model calibration.
 
 **Evidence:** 5/5 local runs returned 7 candidates with 7/7 range overlap. Live uncached variance still requires a controlled API-backed evaluation with a fixed prompt/model budget.
+
+### Loop 15 — apply the taste pass
+
+**Reading:** Product workspace for editors, with a Steven.com editorial language and restrained motion.
+
+**Changed:** Removed em-dash punctuation from visible UI copy, keeping the dark palette, single accent, compact labels, and restrained hierarchy consistent across the source, review, and output surfaces.
+
+**Verified:** Intro, hero-motion, browser smoke, and 36 Python tests pass. The refreshed local preview is open at `http://127.0.0.1:8765/`.
