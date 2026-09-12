@@ -27,9 +27,10 @@ class PipelineChecks(unittest.TestCase):
     def test_checkpoint_replace_failure_preserves_previous_json_and_cleans_temp(self):
         with tempfile.TemporaryDirectory() as td:
             checkpoint = Path(td) / "transcript.json"
+            model = Path(td) / "model.bin"; model.write_bytes(b"test")
             previous = {"schema_version": 2, "complete": False, "next_start": 0, "raw_chunks": []}
             checkpoint.write_text(json.dumps(previous))
-            with patch("pipeline.tool_ok", return_value=True), patch("pipeline._run"), patch("pipeline._whisper_json", return_value=[]), patch("pipeline.os.replace", side_effect=OSError("simulated crash")):
+            with patch("pipeline.MODEL", model), patch("pipeline.tool_ok", return_value=True), patch("pipeline._run"), patch("pipeline._whisper_json", return_value=[]), patch("pipeline.os.replace", side_effect=OSError("simulated crash")):
                 with self.assertRaisesRegex(OSError, "simulated crash"):
                     pipeline.transcribe(str(Path(td) / "x.mp4"), 1, checkpoint)
             self.assertEqual(json.loads(checkpoint.read_text()), previous)
