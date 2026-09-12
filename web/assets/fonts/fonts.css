@@ -1,0 +1,4 @@
+/* Self-hosted, open-licensed (SIL OFL). No external font CDN: this app keeps
+   everything on the machine, and hotlinking a licensed face is not ours to do. */
+@font-face{font-family:"Host Grotesk";font-style:normal;font-weight:300 600;font-display:swap;src:url("host-grotesk-var.woff2") format("woff2")}
+@font-face{font-family:"League Gothic";font-style:normal;font-weight:400;font-display:swap;src:url("league-gothic-400.woff2") format("woff2")}
